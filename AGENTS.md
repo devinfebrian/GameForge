@@ -16,7 +16,7 @@
 - Prefer exhaustive handling (`never` checks) for unions.
 - Treat caught errors as `unknown` and narrow before use.
 **Component Architecture:** Server Components (`RSC`) by default. Mark Client Components explicitly with `'use client';` only when utilizing state, effects, or browser APIs.
-* **Route Protection:** All administrative endpoints and views (`/admin/*`, `/api/admin/*`) MUST be guarded at the Edge via `middleware.ts` verifying `profiles.role === 'admin'`. Never rely solely on client-side route redirects.
+* **Route Protection:** Next.js 16 replaced `middleware.ts` with `proxy.ts`. `proxy.ts` MUST do only two things: refresh the Supabase session via `supabase.auth.getClaims()` and perform optimistic redirects. It MUST NOT query the database or act as the authorization layer. Real enforcement lives in the Data Access Layer (`lib/dal.ts`: `requireUser()` / `requireAdmin()`), which every Route Handler, Server Action, and admin page MUST call. Never rely solely on client-side redirects, proxy matchers, or `getSession()` for authorization.
 * **Naming Conventions:**
   * Components: PascalCase (e.g., `SandboxCanvas.tsx`, `PipelineStepper.tsx`).
   * Hooks: camelCase starting with `use` (e.g., `useSandboxBridge.ts`).
