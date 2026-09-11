@@ -90,13 +90,17 @@ for (const level of ["log", "info", "warn", "error"]) {
   console[level] = (...args) => {
     original(...args);
 
-    const now = Date.now();
+    // Only the chatty levels share the rate limit: dropping a warn or error
+    // would hide the exact diagnostic the parent is forwarding them for.
+    if (level === "log" || level === "info") {
+      const now = Date.now();
 
-    if (now - lastConsoleForwardAt < CONSOLE_FORWARD_MIN_INTERVAL_MS) {
-      return;
+      if (now - lastConsoleForwardAt < CONSOLE_FORWARD_MIN_INTERVAL_MS) {
+        return;
+      }
+
+      lastConsoleForwardAt = now;
     }
-
-    lastConsoleForwardAt = now;
 
     post({
       type: "CONSOLE_LOG",
@@ -182,10 +186,32 @@ function teardown() {
   delete window.__MAIN_SCENE__;
 }
 
+// The frame cannot import the parent's Zod schema, so it enforces the same
+// contract structurally: a non-empty code string and a plain object mapping
+// logical asset names to string URLs.
+function isValidLoadCodePayload(message) {
+  return (
+    typeof message.code === "string" &&
+    message.code.length > 0 &&
+    typeof message.assetManifest === "object" &&
+    message.assetManifest !== null &&
+    !Array.isArray(message.assetManifest) &&
+    Object.values(message.assetManifest).every((url) => typeof url === "string")
+  );
+}
+
 function handleLoadCode(message) {
   if (message.protocolVersion !== PROTOCOL_VERSION) {
     reportRuntimeError({
       message: `Protocol version mismatch: frame speaks ${PROTOCOL_VERSION}, parent sent ${message.protocolVersion}.`,
+    });
+    return;
+  }
+
+  if (!isValidLoadCodePayload(message)) {
+    reportRuntimeError({
+      message:
+        "Malformed LOAD_CODE payload: expected a non-empty code string and an asset manifest of string URLs.",
     });
     return;
   }

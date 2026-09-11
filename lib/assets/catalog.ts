@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ASSET_BUCKET, publicAssetUrl } from "./bucket";
 
-export const curationEntrySchema = z.object({
+const curationEntrySchema = z.object({
   /** Stable logical id, also used as the key generated code references. */
   id: z.string().min(1),
   /** Path under assets-src/ that holds the source PNG. */
@@ -12,7 +12,7 @@ export const curationEntrySchema = z.object({
   tags: z.array(z.string().min(1)).min(1),
 });
 
-export const catalogAssetSchema = curationEntrySchema.extend({
+const catalogAssetSchema = curationEntrySchema.extend({
   width: z.number().int().positive(),
   height: z.number().int().positive(),
 });
@@ -25,7 +25,6 @@ export const catalogSchema = z.object({
 
 export const curationSchema = z.array(curationEntrySchema);
 
-export type CurationEntry = z.infer<typeof curationEntrySchema>;
 export type CatalogAsset = z.infer<typeof catalogAssetSchema>;
 export type Catalog = z.infer<typeof catalogSchema>;
 

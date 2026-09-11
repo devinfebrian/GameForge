@@ -109,7 +109,6 @@ export function useSandboxBridge(): SandboxBridge {
       send({
         type: "LOAD_CODE",
         protocolVersion: PROTOCOL_VERSION,
-        parentOrigin: window.location.origin,
         code,
         assetManifest,
       });
@@ -117,19 +116,21 @@ export function useSandboxBridge(): SandboxBridge {
     [send],
   );
 
+  // While idle there is no game in the frame to control, and no SCENE_READY
+  // will ever arrive to move the status back — so controls must not leave idle.
   const pause = useCallback(() => {
-    setStatus("paused");
+    setStatus((current) => (current === "idle" ? current : "paused"));
     send({ type: "PAUSE_GAME" });
   }, [send]);
 
   const resume = useCallback(() => {
-    setStatus("running");
+    setStatus((current) => (current === "idle" ? current : "running"));
     send({ type: "RESUME_GAME" });
   }, [send]);
 
   const restart = useCallback(() => {
     setLastError(null);
-    setStatus("booting");
+    setStatus((current) => (current === "idle" ? current : "booting"));
     send({ type: "RESTART_GAME" });
   }, [send]);
 

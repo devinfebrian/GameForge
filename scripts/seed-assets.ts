@@ -162,7 +162,11 @@ async function check(): Promise<boolean> {
   }
 
   for (const asset of committed.assets) {
-    const response = await fetch(publicAssetUrl(supabaseUrl, asset.objectPath));
+    // HEAD is enough: the check only reads the status and the CORS header, and
+    // it should not download every sprite to do it.
+    const response = await fetch(publicAssetUrl(supabaseUrl, asset.objectPath), {
+      method: "HEAD",
+    });
 
     if (response.status !== 200) {
       console.error(`missing object (status ${response.status}): ${asset.objectPath}`);

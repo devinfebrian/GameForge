@@ -20,6 +20,8 @@ export function SandboxHarness({ fixtureManifest }: SandboxHarnessProps) {
   // The frame sends nothing at all until the parent's first message pins its
   // origin, so these probes are only exact while the status is still idle.
   const probesEnabled = bridge.status === "idle";
+  // Game controls only do something once a scene has been loaded.
+  const controlsEnabled = bridge.ready && bridge.status !== "idle";
 
   function probeForeignSource() {
     const before = bridge.acceptedMessagesRef.current;
@@ -78,13 +80,28 @@ export function SandboxHarness({ fixtureManifest }: SandboxHarnessProps) {
         >
           Load failing fixture
         </button>
-        <button type="button" className={buttonClassName} onClick={bridge.pause}>
+        <button
+          type="button"
+          className={buttonClassName}
+          disabled={!controlsEnabled}
+          onClick={bridge.pause}
+        >
           Pause
         </button>
-        <button type="button" className={buttonClassName} onClick={bridge.resume}>
+        <button
+          type="button"
+          className={buttonClassName}
+          disabled={!controlsEnabled}
+          onClick={bridge.resume}
+        >
           Resume
         </button>
-        <button type="button" className={buttonClassName} onClick={bridge.restart}>
+        <button
+          type="button"
+          className={buttonClassName}
+          disabled={!controlsEnabled}
+          onClick={bridge.restart}
+        >
           Restart
         </button>
         <span className="text-sm">
