@@ -42,6 +42,12 @@ yarn-error.log*
 .commandcode/
 skills-lock.json
 
+# generated: copied out of node_modules by scripts/copy-vendor.ts
+/public/sandbox/vendor/
+
+# staging area for curated Kenney sprites, uploaded to Supabase Storage
+/assets-src/
+
 # vercel
 .vercel
 

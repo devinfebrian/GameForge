@@ -34,7 +34,7 @@ flowchart TD
     subgraph Storage ["Persistence & Infrastructure"]
         SupabaseDB["Supabase Postgres (Auth, Profiles, Games, Versions, LLM Config)"]
         UpstashRedis["Upstash Redis (Tiered Token-Bucket Quotas & Burst Limiting)"]
-        AssetCDN["Static Asset Catalog (/public/assets/kenney)"]
+        AssetCDN["Supabase Storage (Public Asset Bucket)"]
     end
 
     Studio -->|SSE Stream Request| StreamAPI
@@ -69,16 +69,19 @@ flowchart TD
 - **Model selection**: Anthropic-only implementation. The active model ID is read from `llm_configurations` and validated against `GET /v1/models` at startup, so no model ID is hardcoded in application code. The `provider` column is retained for future providers.
 
 ### 2.2 Sandboxed Iframe & PostMessage Bridge
-- **Architecture**: a **separate-origin** sandboxed `<iframe>` (`sandbox="allow-scripts"`) served from a dedicated hostname — `sandbox.localhost:3000` in development, `sandbox.<domain>` in production. With no `allow-same-origin`, the frame runs in an opaque origin: cookies and localStorage are fully isolated and all communication is postMessage-only.
-- **CORS**: because the runner's origin differs from the parent's, the runner document and every asset it loads (sprites, audio, catalog) must be served with `Access-Control-Allow-Origin` for the parent origin — configured via `headers()` in `next.config.ts`, scoped to `/assets/:path*` and `/sandbox/:path*`. Phaser loads textures over XHR, so a missing header either fails the load or taints the canvas.
-- **Message validation**: every `postMessage` uses an explicit `targetOrigin` (never `"*"`), and **both** sides validate `event.origin` against a configured allowlist (`PARENT_ORIGIN` / `SANDBOX_ORIGIN`) before acting on any message. Messages from unknown origins are dropped silently.
-- **Production deployment**: requires a real subdomain (DNS record + platform domain) plus `frame-src` / `frame-ancestors` CSP entries on the parent. `*.localhost` resolution in dev does not validate the production path.
+- **Architecture**: the sandbox is a **same-host** static document at `/sandbox/index.html`, embedded as `<iframe sandbox="allow-scripts" allow="autoplay">`. Omitting `allow-same-origin` is what creates the opaque origin — the URL's host contributes nothing to isolation, so the dedicated `sandbox.<domain>` hostname is deferred to Phase 6. `allow="autoplay"` is a separate mechanism from `sandbox` and is what makes jsfxr audible. The frame loads vendored Phaser and jsfxr UMD builds plus `runner.js`; it imports nothing from the app bundle and carries no React or Next runtime.
+- **CSP**: enforced as a real response header from `headers()` in `next.config.ts`, scoped to `/sandbox/:path*` and built by `lib/sandbox/csp.ts` from `getPublicEnv()`. Every source expression names an explicit origin — never `'self'`, which resolves against an opaque origin and matches nothing in WebKit, blanking the frame on Safari and iOS. `script-src` also carries `blob:` because `LOAD_CODE` injects the scene as a Blob URL script. No `'unsafe-eval'` is needed: Phaser 3.90.0's only `new Function` sits behind a `globalThis` guard that modern browsers never reach. `frame-ancestors` is effective only as a header, which is a further reason this is not a meta tag.
+- **Sandbox script CORS**: `/sandbox/:path*` must also send `Access-Control-Allow-Origin: *`. ES modules are **always** fetched in CORS mode, unlike classic scripts, and the frame's opaque origin means every request carries `Origin: null`. Without this header the browser blocks `/sandbox/runner.js`, and because the failure is a silent module-load block, the frame renders its background but never boots — no canvas, no error, status stuck at `booting`. `*` is the only usable value (an opaque origin cannot be named) and these are public static assets with no credentials. This was found only by running a real browser; every HTTP-level check passed without it.
+- **Assets**: sprites are served from a public Supabase Storage bucket rather than from `/public`. An opaque-origin frame sends `Origin: null` on every request, so the bucket must answer with `Access-Control-Allow-Origin: *`. Phaser loads textures with `crossOrigin="anonymous"`, which makes a missing header a hard load failure rather than merely a tainted canvas. This was confirmed by measurement before the asset pipeline was written.
+- **Message validation**: sender identity, not origin strings, is the parent's authority. An opaque origin cannot be named in `targetOrigin`, so parent→child **must** use `"*"`; and every inbound message reports `event.origin === "null"`, which makes a forged and a legitimate message indistinguishable by origin. The parent therefore accepts a message only when `event.source === iframe.contentWindow` **and** the payload parses against its Zod schema. The frame mirrors this: it accepts the first message only if `event.source === window.parent`, pins that origin, and requires it thereafter.
+- **Production deployment**: still requires a real subdomain (DNS record + platform domain) if the two-host model of Phase 6 is adopted. Nothing in Phase 2 validates that path, and `*.localhost` resolution in dev would not have validated it either.
+
 - **Bridge Protocol**:
-  - `PARENT -> IFRAME`: `LOAD_CODE` (injects a new `MainScene` class, cleanly calls `game.destroy(true)` and boots a new game instance), `PAUSE_GAME`, `RESUME_GAME`, `RESTART_GAME`.
-  - `IFRAME -> PARENT`: `SCENE_READY`, `HEARTBEAT`, `CONSOLE_LOG`, `RUNTIME_ERROR` (capturing `window.onerror` and `window.addEventListener('unhandledrejection')` with line number, message, and callstack).
+  - `PARENT -> IFRAME`: `LOAD_CODE` (builds a Blob URL `<script>` from the validated source, tears the previous instance down with `game.destroy(true)`, then boots a new game), `PAUSE_GAME`, `RESUME_GAME`, `RESTART_GAME`.
+  - `IFRAME -> PARENT`: `SCENE_READY`, `HEARTBEAT`, `CONSOLE_LOG`, `RUNTIME_ERROR` (capturing `window.onerror` and `window.addEventListener('unhandledrejection')` with line number, message, and callstack). The runner instruments the injected scene so `SCENE_READY` means `create()` returned without throwing, and so each error is tagged with the failing phase (`preload` / `create` / `update`).
 - **Boot semantics**: the SSE stream carries agent stage, status, and token progress only. The sandbox is booted solely after the complete `MainScene` passes Zod + parse validation — no partial or unvalidated code is ever loaded.
-- **Audio Synthesizer**: injected lightweight in-memory `jsfxr` procedural synth, providing zero-latency sound effects (`laser`, `explosion`, `jump`, `hit`, `pickup`, `powerup`) without external WAV downloads.
-- **Asset licensing**: Kenney packs are CC0; attribution and the jsfxr licence are recorded in `lib/assets/CREDITS.md`.
+- **Audio Synthesizer**: vendored `jsfxr` (UMD build, loaded as a classic script) exposed to scenes as `soundFx`. jsfxr renders each effect to an in-memory WAV data URI, so the sandbox CSP must permit `media-src data:`. Presets are mapped rather than renamed: `laser → laserShoot`, `pickup → pickupCoin`, `hit → hitHurt`, `powerup → powerUp`, while `explosion` and `jump` already match.
+- **Asset licensing**: Kenney packs are CC0 1.0, Phaser is MIT, and jsfxr is UNLICENSE; all recorded in `lib/assets/CREDITS.md`. Curated sprites are deliberately not committed — `lib/assets/curation.json` is the source of truth and `bun run assets:sync` uploads them and regenerates the committed `lib/assets/catalog.json`.
 
 ### 2.3 Automated Debug Agent & Rollback Loop
 - **Probationary Grace Period**: After `LOAD_CODE`, the runner monitors the game for 3 seconds of clean execution (`preload()`, `create()`, and continuous `update()` frames). A `SCENE_READY` plus surviving-heartbeat sequence triggers a write-back to `PATCH /api/games/:id/versions/:versionId/stability` (service-role, owner-checked), which commits `is_stable = true` and updates `games.last_stable_version_id`.
@@ -146,10 +149,12 @@ Two independent mechanisms, both on Upstash Redis:
 - [ ] Implement email/password and Google OAuth auth flow with zod-validated forms.
 
 ### Phase 2: Asset Manifest & Sandbox Runner Harness
-- [ ] Curate and organize Kenney CC0 2D sprite packs in `/public/assets/kenney/` (Space Shooter, Top-down, Platformer, Roguelike), with attribution in `lib/assets/CREDITS.md`.
-- [ ] Create `lib/assets/catalog.json` with tags, dimensions, and static URLs.
-- [ ] Build the separate-origin Sandbox Iframe host (`sandbox.localhost:3000` in dev, `sandbox.<domain>` in prod) with Phaser 3 and the jsfxr sound synthesizer, served with the CORS headers a cross-origin frame requires.
-- [ ] Implement the bidirectional PostMessage communication bridge with `targetOrigin` / `event.origin` validation and error capture (`window.onerror`, `unhandledrejection`, `console.error`).
+- [x] Curate Kenney CC0 sprites through `lib/assets/curation.json`, uploaded to the public `game-assets` Supabase Storage bucket by `scripts/seed-assets.ts`, with attribution in `lib/assets/CREDITS.md`.
+- [x] Generate `lib/assets/catalog.json` (tags, dimensions, object paths) via `bun run assets:sync`, with `bun run assets:check` for curation drift and bucket/ACAO verification. Requires the curated PNGs to be present in a gitignored `assets-src/`.
+- [x] Build the same-host opaque-origin sandbox host at `/sandbox/index.html` with vendored Phaser 3.90.0 and jsfxr, governed by an egress-locked CSP header emitted from `next.config.ts`.
+- [x] Implement the bidirectional PostMessage bridge using sender identity (`event.source`) plus Zod validation on both sides, with error capture (`window.onerror`, `unhandledrejection`, `console.error`) and failing-phase tagging.
+- [x] Add a dev-only harness at `/dev/sandbox` driving `LOAD_CODE` / `PAUSE_GAME` / `RESUME_GAME` / `RESTART_GAME`, plus probes for a forged source and a schema-invalid payload.
+- [ ] Outstanding: populate `assets-src/` with the four Kenney packs and run `assets:sync`, then complete the browser checks in §4 (in particular the Safari/iOS render check).
 
 ### Phase 3: Multi-Agent Pipeline & Route Handlers
 - [ ] Set up the Anthropic-only Claude client (model ID read from `llm_configurations`, validated against `GET /v1/models`).
@@ -187,12 +192,17 @@ After each phase, run:
 ```bash
 bun run check-types
 bun run lint
-bun run build
+bun test
 ```
+
+`bun run build` is deliberately not run locally (see `AGENTS.md`); the deploy platform
+performs it.
 
 Manual checks per phase:
 - **Phase 1**: a non-admin receives 403 on `/admin` and `/api/admin/*` (401 when anonymous); a signed-in user cannot raise their own `role`; anon can read public games only; `integrations` and `llm_configurations` are unreadable by any client; `supabase db advisors` reports no findings.
-- **Phase 2**: code loaded in the sandbox cannot read `parent.document`; a cross-origin asset load succeeds without tainting the canvas; a message from an unknown origin is ignored.
+- **Phase 2**: `bun test` covers protocol drift, bridge acceptance, CSP shape, and catalog schema. On `/dev/sandbox`: the frame renders with no CSP violations; `document.cookie` is empty and `window.parent.document` throws inside the frame; a sprite loads from the bucket and a canvas read-back (`game.renderer.snapshot()`) succeeds, proving the canvas is not tainted; a message dispatched from a foreign `source` is ignored, as is a schema-invalid payload from the correct source; the failing fixture surfaces `RUNTIME_ERROR` and Restart recovers; audio plays after a click inside the frame; and the frame renders in Safari/iOS, where a `'self'`-based policy would have failed silently.
+
+  **Measured results (Chromium, 2026-09-11).** An in-frame diagnostic reported `ORIGIN=null | COOKIE=blocked:SecurityError | PARENT_DOC=blocked:SecurityError | LOCALSTORAGE=blocked:SecurityError | SNAPSHOT=ok`, confirming the opaque origin, all three isolation blocks, and an untainted canvas with a cross-origin sprite drawn. Verified end to end: real Kenney sprite fetched from the bucket as an XHR and rendered; `LOAD_CODE` → Blob script → Phaser 3.90.0 boot → `SCENE_READY` → `running`; console forwarding; Pause/Resume/Restart; the failing fixture reporting `update: Fixture runtime failure`; and both security probes rejected. Not verified: **Safari/iOS**, which cannot be exercised on Windows — the `'self'`-based CSP regression remains untested there. Audible output was not verifiable in headless Chromium (no audio device), though no `media-src` violation occurred, which was the actual risk given jsfxr's data: URIs.
 - **Phase 3**: a Zod-invalid `GameSpec` is rejected; an aborted run persists nothing and refunds its token budget.
 - **Phase 4**: no partial code is ever booted into the sandbox.
 - **Phase 5**: a forced runtime error triggers 3 retries and then rolls back to `last_stable_version_id`.

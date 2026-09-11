@@ -6,6 +6,7 @@
 - Make minimal, targeted changes; avoid refactors unless requested/necessary.
 - Preserve existing structure, conventions, and tooling.
 - Don’t add dependencies without strong justification.
+- Don't build on local environment (e.g. bun run build)
 
 ## TypeScript
 - Write strict, idiomatic TS; follow the repo’s tsconfig and lint rules.
