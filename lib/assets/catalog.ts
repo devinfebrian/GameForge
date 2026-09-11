@@ -36,3 +36,35 @@ export type Catalog = z.infer<typeof catalogSchema>;
 export function resolveAssetUrl(supabaseUrl: string, objectPath: string): string {
   return publicAssetUrl(supabaseUrl, objectPath);
 }
+
+/**
+ * The assets the sandbox can render as-is.
+ *
+ * Spritesheets need frame slicing, which Phase 3's contract has no notion of:
+ * the runner only ever calls `this.load.image`. Withholding them from the agents
+ * is what stops the Spec Agent from steering an entity toward art that cannot be
+ * displayed, so this filter is applied to both the tag vocabulary and the
+ * candidate list rather than to one of them.
+ */
+export function listRenderableAssets(
+  catalog: Catalog,
+): ReadonlyArray<CatalogAsset> {
+  return catalog.assets.filter((asset) => !asset.tags.includes("spritesheet"));
+}
+
+/**
+ * The tag vocabulary the catalog can actually satisfy. Handed to the Spec Agent
+ * so the `assetTags` it writes for each entity are drawn from terms that exist,
+ * rather than free-form descriptions the Asset Mapper then has to guess against.
+ */
+export function listCatalogTags(catalog: Catalog): ReadonlyArray<string> {
+  const tags = new Set<string>();
+
+  for (const asset of listRenderableAssets(catalog)) {
+    for (const tag of asset.tags) {
+      tags.add(tag);
+    }
+  }
+
+  return [...tags].sort();
+}

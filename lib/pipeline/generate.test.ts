@@ -1,0 +1,398 @@
+import { describe, expect, test } from "bun:test";
+import { ASSET_MAP_TOOL_NAME } from "@/lib/agents/asset-mapper/schema";
+import { SPEC_TOOL_NAME } from "@/lib/agents/spec/schema";
+import { catalogSchema } from "@/lib/assets/catalog";
+import catalogJson from "@/lib/assets/catalog.json";
+import { GenerationError } from "@/lib/llm/errors";
+import type {
+  LlmClient,
+  LlmUsage,
+  StructuredRequest,
+} from "@/lib/llm/types";
+import { runGeneration, type GenerationDependencies } from "@/lib/pipeline/generate";
+import type { PersistGenerationInput } from "@/lib/pipeline/persist";
+import type { SseFrame } from "@/lib/pipeline/events";
+
+const catalog = catalogSchema.parse(catalogJson);
+const SUPABASE_URL = "https://example.supabase.co";
+const MODELS = {
+  spec: "claude-sonnet-5",
+  asset_mapper: "claude-sonnet-5",
+  coder: "claude-sonnet-5",
+};
+
+const STRUCTURED_USAGE: LlmUsage = { inputTokens: 10, outputTokens: 5 };
+const TEXT_USAGE: LlmUsage = { inputTokens: 100, outputTokens: 50 };
+
+const VALID_SPEC = {
+  title: "Space Blaster",
+  genre: "space shooter",
+  summary: "Blast ships before they ram you.",
+  mechanics: ["Move with arrows", "Fire with space"],
+  controls: [{ action: "move", keys: ["ArrowLeft", "ArrowRight"] }],
+  winCondition: "Destroy ten enemies.",
+  lossCondition: "Collide with an enemy.",
+  entities: [
+    { id: "player", kind: "player", behavior: "Slides along the bottom.", assetTags: ["player"] },
+    { id: "enemy", kind: "enemy", behavior: "Descends.", assetTags: ["enemy"] },
+  ],
+};
+
+const VALID_MAPPING = {
+  sprites: [
+    { entityId: "player", assetId: "player_ship" },
+    { entityId: "enemy", assetId: "enemy_ship" },
+  ],
+  sounds: [{ event: "shoot", preset: "laser" }],
+};
+
+const SCENE = "class MainScene extends Phaser.Scene {}\nwindow.__MAIN_SCENE__ = MainScene;";
+
+type Producer<T> = () => T | Promise<T>;
+
+interface FakeClientOptions {
+  readonly spec?: Producer<unknown>;
+  readonly mapping?: Producer<unknown>;
+  readonly code?: Producer<string>;
+}
+
+function abortError(): Error {
+  const error = new Error("The operation was aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
+/**
+ * A deterministic stand-in for the SDK.
+ *
+ * It runs the real `parse`, so a fake that returns a bad payload exercises the
+ * same Zod path the live model does rather than a mocked shortcut.
+ */
+function createFakeClient(options: FakeClientOptions): LlmClient {
+  return {
+    async generateStructured<T>(request: StructuredRequest<T>) {
+      const producer =
+        request.toolName === SPEC_TOOL_NAME
+          ? options.spec
+          : request.toolName === ASSET_MAP_TOOL_NAME
+            ? options.mapping
+            : undefined;
+
+      if (producer === undefined) {
+        throw new GenerationError(
+          "internal",
+          `No fake configured for ${request.toolName}.`,
+        );
+      }
+
+      return { data: request.parse(await producer()), usage: STRUCTURED_USAGE };
+    },
+    async generateText() {
+      if (options.code === undefined) {
+        throw new GenerationError("internal", "No fake coder configured.");
+      }
+
+      return { text: await options.code(), usage: TEXT_USAGE };
+    },
+  };
+}
+
+interface RunOptions extends FakeClientOptions {
+  readonly persistThrows?: boolean;
+  readonly abortDuring?: "spec" | "asset_mapper" | "coder";
+}
+
+async function runPipeline(options: RunOptions = {}) {
+  const controller = new AbortController();
+  const frames: SseFrame[] = [];
+  const persistCalls: PersistGenerationInput[] = [];
+
+  /** An explicit producer wins; otherwise the configured stage aborts, or all is well. */
+  function forStage<T>(
+    stage: "spec" | "asset_mapper" | "coder",
+    provided: Producer<T> | undefined,
+    fallback: Producer<T>,
+  ): Producer<T> {
+    if (provided !== undefined) {
+      return provided;
+    }
+
+    if (options.abortDuring === stage) {
+      return () => {
+        controller.abort();
+        throw abortError();
+      };
+    }
+
+    return fallback;
+  }
+
+  const deps: GenerationDependencies = {
+    client: createFakeClient({
+      spec: forStage("spec", options.spec, async () => VALID_SPEC),
+      mapping: forStage("asset_mapper", options.mapping, async () => VALID_MAPPING),
+      code: forStage("coder", options.code, async () => SCENE),
+    }),
+    models: MODELS,
+    catalog,
+    supabaseUrl: SUPABASE_URL,
+    persist: async (input) => {
+      persistCalls.push(input);
+
+      if (options.persistThrows === true) {
+        throw new GenerationError("internal", "The database rejected the write.");
+      }
+
+      return {
+        gameId: "game-1",
+        versionId: "version-1",
+        versionNumber: 1,
+      };
+    },
+    emit: (frame) => frames.push(frame),
+    signal: controller.signal,
+    now: () => 0,
+  };
+
+  const outcome = await runGeneration(
+    { prompt: "a space shooter", gameId: null, userId: "user-1" },
+    deps,
+  );
+
+  return {
+    outcome,
+    frames,
+    persistCalls,
+    eventNames: frames.map((frame) => frame.event),
+    firstPersist: persistCalls[0],
+  };
+}
+
+describe("runGeneration — success", () => {
+  test("runs three stages in order and completes", async () => {
+    const { outcome, eventNames } = await runPipeline();
+
+    expect(outcome.status).toBe("completed");
+    expect(eventNames).toEqual([
+      "run.started",
+      "stage.started",
+      "stage.completed",
+      "usage",
+      "stage.started",
+      "stage.completed",
+      "usage",
+      "stage.started",
+      "stage.completed",
+      "usage",
+      "run.completed",
+    ]);
+  });
+
+  test("persists exactly once, promoted, with a scene and no error log", async () => {
+    const { persistCalls, firstPersist } = await runPipeline();
+
+    expect(persistCalls).toHaveLength(1);
+    expect(firstPersist.promoteCurrent).toBe(true);
+    expect(firstPersist.errorLog).toBeNull();
+    expect(firstPersist.sourceCode).toBe(SCENE);
+    expect(firstPersist.gameId).toBeNull();
+    expect(firstPersist.userId).toBe("user-1");
+    expect(firstPersist.modelUsed).toBe(MODELS.coder);
+  });
+
+  test("carries the validated spec and a resolved manifest into the write", async () => {
+    const { firstPersist } = await runPipeline();
+
+    expect(firstPersist.spec.title).toBe("Space Blaster");
+    expect(firstPersist.manifest.sprites.player).toBe(
+      `${SUPABASE_URL}/storage/v1/object/public/game-assets/space-shooter-remastered/player_ship.png`,
+    );
+    expect(firstPersist.manifest.sounds.shoot).toBe("laser");
+  });
+
+  test("sums usage across every stage", async () => {
+    const { firstPersist } = await runPipeline();
+
+    expect(firstPersist.tokensUsed).toBe(
+      STRUCTURED_USAGE.inputTokens * 2 +
+        STRUCTURED_USAGE.outputTokens * 2 +
+        TEXT_USAGE.inputTokens +
+        TEXT_USAGE.outputTokens,
+    );
+  });
+
+  test("reports cumulative usage after each stage", async () => {
+    const { frames } = await runPipeline();
+    const usage = frames
+      .filter((frame) => frame.event === "usage")
+      .map((frame) => frame.data as { inputTokens: number });
+
+    expect(usage.map((entry) => entry.inputTokens)).toEqual([10, 20, 120]);
+  });
+});
+
+describe("runGeneration — spec failure", () => {
+  test("persists nothing when the model returns an invalid spec", async () => {
+    const { outcome, persistCalls, eventNames } = await runPipeline({
+      spec: async () => ({ ...VALID_SPEC, entities: [] }),
+    });
+
+    expect(outcome.status).toBe("failed");
+    expect(persistCalls).toHaveLength(0);
+    expect(eventNames).not.toContain("run.completed");
+  });
+
+  test("emits an error frame naming the stage and carrying no version", async () => {
+    const { outcome, frames } = await runPipeline({
+      spec: async () => ({ ...VALID_SPEC, genre: "" }),
+    });
+    const errorFrame = frames.find((frame) => frame.event === "error");
+
+    expect(outcome.status).toBe("failed");
+    expect(errorFrame?.data).toMatchObject({
+      code: "spec_failed",
+      stage: "spec",
+      versionId: null,
+    });
+  });
+
+  test("does not treat a spec failure as an asset mapper failure", async () => {
+    const { outcome } = await runPipeline({
+      spec: async () => {
+        throw new Error("upstream exploded");
+      },
+    });
+
+    expect(outcome.status === "failed" && outcome.code).toBe("spec_failed");
+  });
+});
+
+describe("runGeneration — asset mapper failure degrades", () => {
+  test("still completes, warning about the degradation", async () => {
+    const { outcome, eventNames, firstPersist } = await runPipeline({
+      mapping: async () => {
+        throw new Error("mapper unavailable");
+      },
+    });
+
+    expect(outcome.status).toBe("completed");
+    expect(eventNames).toContain("warning");
+    expect(firstPersist.manifest.sprites).toEqual({ player: null, enemy: null });
+  });
+
+  test("does not emit stage.completed for a degraded stage", async () => {
+    const { frames } = await runPipeline({
+      mapping: async () => ({ sprites: "not-an-array" }),
+    });
+    const completed = frames
+      .filter((frame) => frame.event === "stage.completed")
+      .map((frame) => (frame.data as { stage: string }).stage);
+
+    expect(completed).toEqual(["spec", "coder"]);
+  });
+
+  // The one place a swallowed error would be catastrophic: an aborted run must
+  // not be mistaken for a cosmetic failure and continue into a database write.
+  test("an abort during mapping is not a degradation", async () => {
+    const { outcome, persistCalls, eventNames } = await runPipeline({
+      abortDuring: "asset_mapper",
+    });
+
+    expect(outcome.status).toBe("aborted");
+    expect(persistCalls).toHaveLength(0);
+    expect(eventNames).not.toContain("warning");
+    expect(eventNames).not.toContain("error");
+  });
+});
+
+describe("runGeneration — coder failure", () => {
+  test("persists the validated spec as an unstable version", async () => {
+    const { outcome, firstPersist } = await runPipeline({
+      code: async () => {
+        throw new Error("stream closed");
+      },
+    });
+
+    expect(outcome.status === "failed" && outcome.code).toBe("coder_failed");
+    expect(firstPersist.sourceCode).toBeNull();
+    expect(firstPersist.errorLog).toContain("coder_failed");
+    expect(firstPersist.promoteCurrent).toBe(false);
+    expect(firstPersist.spec.title).toBe("Space Blaster");
+  });
+
+  test("points the error frame at the persisted failed version", async () => {
+    const { outcome, frames } = await runPipeline({ code: async () => "   " });
+    const errorFrame = frames.find((frame) => frame.event === "error");
+
+    expect(outcome.status === "failed" && outcome.versionId).toBe("version-1");
+    expect(errorFrame?.data).toMatchObject({
+      code: "coder_failed",
+      stage: "coder",
+      versionId: "version-1",
+    });
+  });
+
+  test("an abort during coding writes nothing", async () => {
+    const { outcome, persistCalls, eventNames } = await runPipeline({
+      abortDuring: "coder",
+    });
+
+    expect(outcome.status).toBe("aborted");
+    expect(persistCalls).toHaveLength(0);
+    expect(eventNames).not.toContain("error");
+  });
+});
+
+describe("runGeneration — abort", () => {
+  test("an aborted run writes nothing and emits no terminal frame", async () => {
+    const { outcome, persistCalls, eventNames } = await runPipeline({
+      abortDuring: "spec",
+    });
+
+    expect(outcome).toEqual({ status: "aborted" });
+    expect(persistCalls).toHaveLength(0);
+    expect(eventNames).toEqual(["run.started", "stage.started"]);
+  });
+
+  test("an already-aborted signal never reaches the database", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const persistCalls: PersistGenerationInput[] = [];
+
+    const outcome = await runGeneration(
+      { prompt: "p", gameId: null, userId: "user-1" },
+      {
+        client: createFakeClient({ spec: async () => VALID_SPEC }),
+        models: MODELS,
+        catalog,
+        supabaseUrl: SUPABASE_URL,
+        persist: async (input) => {
+          persistCalls.push(input);
+          return { gameId: "g", versionId: "v", versionNumber: 1 };
+        },
+        emit: () => {},
+        signal: controller.signal,
+        now: () => 0,
+      },
+    );
+
+    expect(outcome.status).toBe("aborted");
+    expect(persistCalls).toHaveLength(0);
+  });
+});
+
+describe("runGeneration — persistence failure", () => {
+  test("is reported as an internal failure, not blamed on the coder", async () => {
+    const { outcome } = await runPipeline({ persistThrows: true });
+
+    expect(outcome.status === "failed" && outcome.code).toBe("internal");
+  });
+
+  test("still emits exactly one terminal frame", async () => {
+    const { eventNames } = await runPipeline({ persistThrows: true });
+
+    expect(eventNames.filter((name) => name === "error")).toHaveLength(1);
+    expect(eventNames).not.toContain("run.completed");
+  });
+});
