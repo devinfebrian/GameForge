@@ -1,0 +1,121 @@
+[
+  {
+    "id": "player_ship",
+    "source": "space-shooter-remastered/PNG/playerShip1_blue.png",
+    "objectPath": "space-shooter-remastered/player_ship.png",
+    "pack": "Space Shooter Remastered",
+    "tags": ["player", "ship", "space"]
+  },
+  {
+    "id": "enemy_ship",
+    "source": "space-shooter-remastered/PNG/Enemies/enemyBlack1.png",
+    "objectPath": "space-shooter-remastered/enemy_ship.png",
+    "pack": "Space Shooter Remastered",
+    "tags": ["enemy", "ship", "space"]
+  },
+  {
+    "id": "laser_blue",
+    "source": "space-shooter-remastered/PNG/Lasers/laserBlue01.png",
+    "objectPath": "space-shooter-remastered/laser_blue.png",
+    "pack": "Space Shooter Remastered",
+    "tags": ["projectile", "weapon", "space"]
+  },
+  {
+    "id": "meteor_brown_big",
+    "source": "space-shooter-remastered/PNG/Meteors/meteorBrown_big1.png",
+    "objectPath": "space-shooter-remastered/meteor_brown_big.png",
+    "pack": "Space Shooter Remastered",
+    "tags": ["obstacle", "hazard", "space"]
+  },
+  {
+    "id": "powerup_bolt_gold",
+    "source": "space-shooter-remastered/PNG/Power-ups/bolt_gold.png",
+    "objectPath": "space-shooter-remastered/powerup_bolt_gold.png",
+    "pack": "Space Shooter Remastered",
+    "tags": ["collectible", "powerup", "space"]
+  },
+  {
+    "id": "star_particle",
+    "source": "space-shooter-remastered/PNG/Effects/star1.png",
+    "objectPath": "space-shooter-remastered/star_particle.png",
+    "pack": "Space Shooter Remastered",
+    "tags": ["effect", "particle", "space"]
+  },
+  {
+    "id": "soldier_stand",
+    "source": "top-down-shooter/PNG/Soldier 1/soldier1_stand.png",
+    "objectPath": "top-down-shooter/soldier_stand.png",
+    "pack": "Top-down Shooter",
+    "tags": ["player", "character", "top-down"]
+  },
+  {
+    "id": "soldier_gun",
+    "source": "top-down-shooter/PNG/Soldier 1/soldier1_gun.png",
+    "objectPath": "top-down-shooter/soldier_gun.png",
+    "pack": "Top-down Shooter",
+    "tags": ["player", "character", "weapon", "top-down"]
+  },
+  {
+    "id": "robot_gun",
+    "source": "top-down-shooter/PNG/Robot 1/robot1_gun.png",
+    "objectPath": "top-down-shooter/robot_gun.png",
+    "pack": "Top-down Shooter",
+    "tags": ["enemy", "character", "top-down"]
+  },
+  {
+    "id": "tile_topdown",
+    "source": "top-down-shooter/PNG/Tiles/tile_01.png",
+    "objectPath": "top-down-shooter/tile_01.png",
+    "pack": "Top-down Shooter",
+    "tags": ["terrain", "tile", "top-down"]
+  },
+  {
+    "id": "player_idle",
+    "source": "new-platformer-pack/Sprites/Characters/Default/character_green_idle.png",
+    "objectPath": "new-platformer-pack/player_idle.png",
+    "pack": "New Platformer Pack",
+    "tags": ["player", "character", "platformer"]
+  },
+  {
+    "id": "player_jump",
+    "source": "new-platformer-pack/Sprites/Characters/Default/character_green_jump.png",
+    "objectPath": "new-platformer-pack/player_jump.png",
+    "pack": "New Platformer Pack",
+    "tags": ["player", "character", "platformer"]
+  },
+  {
+    "id": "enemy_bee",
+    "source": "new-platformer-pack/Sprites/Enemies/Default/bee_a.png",
+    "objectPath": "new-platformer-pack/enemy_bee.png",
+    "pack": "New Platformer Pack",
+    "tags": ["enemy", "platformer"]
+  },
+  {
+    "id": "terrain_block",
+    "source": "new-platformer-pack/Sprites/Tiles/Default/block_green.png",
+    "objectPath": "new-platformer-pack/terrain_block.png",
+    "pack": "New Platformer Pack",
+    "tags": ["terrain", "tile", "platformer"]
+  },
+  {
+    "id": "platform_plank",
+    "source": "new-platformer-pack/Sprites/Tiles/Default/block_plank.png",
+    "objectPath": "new-platformer-pack/platform_plank.png",
+    "pack": "New Platformer Pack",
+    "tags": ["terrain", "platform", "platformer"]
+  },
+  {
+    "id": "collectible_coin",
+    "source": "new-platformer-pack/Sprites/Tiles/Default/block_coin.png",
+    "objectPath": "new-platformer-pack/collectible_coin.png",
+    "pack": "New Platformer Pack",
+    "tags": ["collectible", "platformer"]
+  },
+  {
+    "id": "roguelike_characters_sheet",
+    "source": "roguelike-characters/Spritesheet/roguelikeChar_transparent.png",
+    "objectPath": "roguelike-characters/character_sheet.png",
+    "pack": "Roguelike Characters",
+    "tags": ["spritesheet", "roguelike", "character"]
+  }
+]

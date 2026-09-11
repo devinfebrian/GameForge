@@ -117,12 +117,25 @@ enabled = true
 # The maximum file size allowed (e.g. "5MB", "500KB").
 file_size_limit = "50MiB"
 
-# Uncomment to configure local storage buckets
-# [storage.buckets.images]
-# public = false
-# file_size_limit = "50MiB"
-# allowed_mime_types = ["image/png", "image/jpeg"]
-# objects_path = "./images"
+# The public bucket the sandbox loads sprites from.
+#
+# Scope: this declaration is applied by `supabase start` (local development) and by
+# Supabase branching. It is NOT applied to the linked project. Verified against CLI
+# 2.117.0: `supabase config push` neither creates nor removes buckets -- with this
+# declaration present and the bucket absent it reported "Remote Storage config is up to
+# date" and created nothing. There is also no `storage bucket create` command (`storage`
+# only does ls/cp/mv/rm, and `cp` fails with NoSuchBucket on a missing bucket).
+#
+# scripts/seed-assets.ts therefore creates the bucket with the service-role key, and
+# mirrors these properties. Keep the two in agreement.
+#
+# `objects_path` is deliberately omitted: uploads are handled by scripts/seed-assets.ts,
+# and assets-src/ is gitignored, so binding this to that directory would make
+# `supabase start` depend on a directory that may be absent.
+[storage.buckets."game-assets"]
+public = true
+file_size_limit = "10MiB"
+allowed_mime_types = ["image/png"]
 
 # Allow connections via S3 compatible clients
 [storage.s3_protocol]
