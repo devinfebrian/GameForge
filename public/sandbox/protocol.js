@@ -9,6 +9,7 @@ export const PARENT_TO_FRAME_TYPES = [
   "PAUSE_GAME",
   "RESUME_GAME",
   "RESTART_GAME",
+  "SET_MUTED",
 ];
 
 export const FRAME_TO_PARENT_TYPES = [

@@ -74,4 +74,11 @@ describe("parentToFrameMessageSchema", () => {
   test("rejects an empty code payload", () => {
     expect(acceptsParent({ ...base, code: "", assetManifest: {} })).toBe(false);
   });
+
+  test("accepts SET_MUTED and requires a real boolean", () => {
+    expect(acceptsParent({ type: "SET_MUTED", muted: true })).toBe(true);
+    expect(acceptsParent({ type: "SET_MUTED", muted: false })).toBe(true);
+    expect(acceptsParent({ type: "SET_MUTED", muted: "true" })).toBe(false);
+    expect(acceptsParent({ type: "SET_MUTED" })).toBe(false);
+  });
 });

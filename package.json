@@ -9,6 +9,7 @@
     "lint": "eslint",
     "check-types": "next typegen && tsc --noEmit",
     "test": "bun test",
+    "test:e2e": "playwright test",
     "vendor:copy": "bun scripts/copy-vendor.ts",
     "assets:fetch": "bun scripts/fetch-kenney-assets.ts",
     "assets:sync": "bun --conditions react-server scripts/seed-assets.ts",
@@ -27,6 +28,7 @@
     "zod": "^4.6.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/bun": "^1.4.2",
     "@types/node": "^20",

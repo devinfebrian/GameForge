@@ -304,6 +304,9 @@ window.addEventListener("message", (event) => {
         game.scene.getScenes(true).forEach((scene) => scene.scene.restart());
       }
       break;
+    case "SET_MUTED":
+      soundFx.setMuted(message.muted);
+      break;
     default:
       break;
   }

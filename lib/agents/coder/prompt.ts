@@ -2,6 +2,16 @@ import type { GameSpec } from "@/lib/agents/spec/schema";
 import type { ResolvedManifest } from "@/lib/agents/asset-mapper/schema";
 
 /**
+ * A revision request. The Coder is the same agent either way — only the user
+ * prompt differs — so the system prompt stays static and cacheable across both
+ * generation and patching.
+ */
+export interface CoderPatchRequest {
+  readonly instruction: string;
+  readonly currentSource: string;
+}
+
+/**
  * Emitted verbatim by the model whenever an entity needs procedural art.
  *
  * The helper is dictated rather than requested because a re-invented version is
@@ -120,10 +130,9 @@ Prefer obvious, boring Phaser code over clever code. A shorter game that boots i
 export function buildCoderUserPrompt(
   spec: GameSpec,
   manifest: ResolvedManifest,
+  patch?: CoderPatchRequest,
 ): string {
-  return `Build this game.
-
-Title: ${spec.title}
+  const design = `Title: ${spec.title}
 Genre: ${spec.genre}
 Summary: ${spec.summary}
 
@@ -141,4 +150,30 @@ ${describeEntities(spec, manifest)}
 
 Sounds:
 ${describeSounds(manifest)}`;
+
+  if (patch === undefined) {
+    return `Build this game.
+
+${design}`;
+  }
+
+  return `Revise the game below. Return the complete updated file — not a diff, not a fragment, and not an explanation.
+
+Requested change: ${patch.instruction}
+
+Rules for this revision:
+- Change only what the request requires. Everything else must survive intact: entity ids, texture keys, control bindings, collision wiring and existing mechanics.
+- Re-read the current file before answering. Do not rebuild the game from the design summary, which describes the original version and may be out of date.
+- Keep every absolute rule from your system prompt: no imports, no eval, class MainScene extends Phaser.Scene, and the final window.__MAIN_SCENE__ assignment.
+- Load only the asset manifest keys listed below. Add nothing new to preload.
+
+The original design, for reference only:
+
+${design}
+
+The current source:
+
+\`\`\`javascript
+${patch.currentSource}
+\`\`\``;
 }

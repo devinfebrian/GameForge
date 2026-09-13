@@ -3,13 +3,17 @@ import { catalogSchema } from "@/lib/assets/catalog";
 import catalogJson from "@/lib/assets/catalog.json";
 import { getCurrentProfile } from "@/lib/dal";
 import { findOwnedGame } from "@/lib/games/repository";
+import { beginGenerationRun, finishGenerationRun, type RunStatus } from "@/lib/games/run-guard";
 import { getPublicEnv } from "@/lib/env/public";
 import { getServerEnv } from "@/lib/env/server";
 import { createGatewayClient } from "@/lib/llm/chat-completions";
-import { GenerationError, type GenerationErrorCode } from "@/lib/llm/errors";
+import { GenerationError } from "@/lib/llm/errors";
+import { createFakeGatewayClient, FAKE_MODELS } from "@/lib/llm/fake-client";
 import { loadAgentModels } from "@/lib/llm/config";
 import { assertModelAvailable } from "@/lib/llm/models";
+import type { AgentModels, LlmClient } from "@/lib/llm/types";
 import { runGeneration } from "@/lib/pipeline/generate";
+import { preStreamFailure } from "@/lib/pipeline/http-status";
 import { persistGeneration } from "@/lib/pipeline/persist";
 import { createSseResponse } from "@/lib/pipeline/sse-stream";
 
@@ -37,37 +41,6 @@ const generateRequestSchema = z.object({
   /** Omitted or null starts a new game; a uuid appends a version to an existing one. */
   gameId: z.uuid().nullish(),
 });
-
-/**
- * Everything the pipeline can fail with before a single byte of stream has been
- * written. Once the stream is open the status line is already committed, so any
- * later failure travels in-band as an `error` frame instead.
- */
-const PRE_STREAM_STATUS: Readonly<Record<GenerationErrorCode, number>> = {
-  invalid_body: 400,
-  unauthorized: 401,
-  game_not_found: 404,
-  config_missing: 503,
-  model_unavailable: 503,
-  provider_auth_failed: 503,
-  provider_content_blocked: 502,
-  provider_error: 502,
-  spec_failed: 500,
-  asset_mapper_failed: 500,
-  coder_failed: 500,
-  aborted: 499,
-  internal: 500,
-};
-
-function preStreamFailure(
-  code: GenerationErrorCode,
-  message: string,
-): Response {
-  return Response.json(
-    { error: { code, message } },
-    { status: PRE_STREAM_STATUS[code] },
-  );
-}
 
 async function readJsonBody(request: Request): Promise<unknown> {
   try {
@@ -116,59 +89,93 @@ export async function POST(request: Request): Promise<Response> {
 
   // Reading env is central; requiring it is not. Missing gateway config takes
   // generation offline and nothing else.
-  const { anthropicApiKey: credential, anthropicBaseUrl: baseUrl } = getServerEnv();
+  const env = getServerEnv();
 
-  if (credential === null || baseUrl === null) {
-    return preStreamFailure(
-      "config_missing",
-      "ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL must both be set to enable game generation.",
-    );
+  let client: LlmClient;
+  let models: AgentModels;
+
+  // The fake also short-circuits model resolution. assertModelAvailable reaches
+  // the gateway over the network, and a development or end-to-end run is meant
+  // to need neither credentials nor a connection. getServerEnv refuses
+  // GENERATION_FAKE outright under NODE_ENV=production, so this branch cannot be
+  // taken by a deployed environment.
+  if (env.generationFake) {
+    client = createFakeGatewayClient();
+    models = FAKE_MODELS;
+  } else {
+    const { anthropicApiKey: credential, anthropicBaseUrl: baseUrl } = env;
+
+    if (credential === null || baseUrl === null) {
+      return preStreamFailure(
+        "config_missing",
+        "ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL must both be set to enable game generation.",
+      );
+    }
+
+    // Resolved before the stream opens, so a missing configuration row, a
+    // rejected credential, or a stale model id is a real status code rather than
+    // a stream that silently stops.
+    try {
+      models = await loadAgentModels();
+
+      for (const model of new Set(Object.values(models))) {
+        await assertModelAvailable(baseUrl, credential, model, {
+          signal: request.signal,
+          timeoutMs: MODEL_LIST_TIMEOUT_MS,
+        });
+      }
+    } catch (error) {
+      // The model-list fetch is now tied to the request signal, so a disconnect
+      // here surfaces as an abort rather than an unhandled rejection. There is no
+      // client left to read it, but the status stays honest.
+      if (request.signal.aborted) {
+        return preStreamFailure("aborted", "The request was cancelled.");
+      }
+
+      return asPreStreamFailure(error);
+    }
+
+    client = createGatewayClient({
+      baseUrl,
+      credential,
+      timeoutMs: MODEL_CALL_TIMEOUT_MS,
+    });
   }
 
-  // Resolved before the stream opens, so a missing configuration row, a rejected
-  // credential, or a stale model id is a real status code rather than a stream
-  // that silently stops.
-  let models;
+  // Claimed before the stream opens, so an overlapping run is a real 409 rather
+  // than an in-band error on a 200 response. Released in the stream's finally.
+  const runId = await beginGenerationRun(profile.id, gameId);
 
-  try {
-    models = await loadAgentModels();
-
-    for (const model of new Set(Object.values(models))) {
-      await assertModelAvailable(baseUrl, credential, model, {
-        signal: request.signal,
-        timeoutMs: MODEL_LIST_TIMEOUT_MS,
-      });
-    }
-  } catch (error) {
-    // The model-list fetch is now tied to the request signal, so a disconnect
-    // here surfaces as an abort rather than an unhandled rejection. There is no
-    // client left to read it, but the status stays honest.
-    if (request.signal.aborted) {
-      return preStreamFailure("aborted", "The request was cancelled.");
-    }
-
-    return asPreStreamFailure(error);
+  if (runId === null) {
+    return preStreamFailure(
+      "run_in_progress",
+      "A generation is already running. Wait for it to finish before starting another.",
+    );
   }
 
   return createSseResponse({
     run: async (emit) => {
-      await runGeneration(
-        { prompt: body.data.prompt, gameId, userId: profile.id },
-        {
-          client: createGatewayClient({
-            baseUrl,
-            credential,
-            timeoutMs: MODEL_CALL_TIMEOUT_MS,
-          }),
-          models,
-          catalog: catalogSchema.parse(catalogJson),
-          supabaseUrl: getPublicEnv().supabaseUrl,
-          persist: persistGeneration,
-          emit,
-          signal: request.signal,
-          now: Date.now,
-        },
-      );
+      let status: RunStatus = "failed";
+
+      try {
+        const outcome = await runGeneration(
+          { prompt: body.data.prompt, gameId, userId: profile.id },
+          {
+            client,
+            models,
+            catalog: catalogSchema.parse(catalogJson),
+            supabaseUrl: getPublicEnv().supabaseUrl,
+            persist: persistGeneration,
+            emit,
+            signal: request.signal,
+            now: Date.now,
+          },
+        );
+
+        status = outcome.status;
+      } finally {
+        await finishGenerationRun(runId, status);
+      }
     },
     onUnexpectedError: (error) => {
       // Server-side only: the stream body stays free of exception detail.

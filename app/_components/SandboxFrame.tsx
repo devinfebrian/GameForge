@@ -15,6 +15,11 @@ export interface SandboxFrameProps {
  * `allow-scripts` without `allow-same-origin` is what creates the opaque origin:
  * it removes access to cookies, storage, and the parent document. `allow` is a
  * separate mechanism from `sandbox` and is what lets jsfxr produce audio.
+ *
+ * `allowFullScreen`/`fullscreen` are both set because the legacy attribute and
+ * the permissions-policy directive are honoured by different engines, and an
+ * iframe denied fullscreen fails silently. Note this hands generated (untrusted)
+ * code a fullscreen surface, which is a deliberate trade for a game player.
  */
 export function SandboxFrame({
   frameRef,
@@ -28,7 +33,8 @@ export function SandboxFrame({
       title={title}
       onLoad={onLoad}
       sandbox="allow-scripts"
-      allow="autoplay"
+      allow="autoplay; fullscreen"
+      allowFullScreen
       className="h-full w-full border-0"
     />
   );

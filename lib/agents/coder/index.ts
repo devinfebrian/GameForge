@@ -2,7 +2,11 @@ import type { ResolvedManifest } from "@/lib/agents/asset-mapper/schema";
 import type { GameSpec } from "@/lib/agents/spec/schema";
 import { GenerationError } from "@/lib/llm/errors";
 import type { LlmClient, LlmUsage } from "@/lib/llm/types";
-import { buildCoderSystemPrompt, buildCoderUserPrompt } from "./prompt";
+import {
+  buildCoderSystemPrompt,
+  buildCoderUserPrompt,
+  type CoderPatchRequest,
+} from "./prompt";
 
 const CODER_MAX_TOKENS = 8192;
 const CODER_TEMPERATURE = 0.4;
@@ -46,6 +50,11 @@ export interface CoderAgentInput {
   readonly client: LlmClient;
   readonly model: string;
   readonly signal: AbortSignal;
+  /**
+   * When present the agent revises `currentSource` instead of writing a scene
+   * from scratch. This is the whole difference between generation and patching.
+   */
+  readonly patch?: CoderPatchRequest;
 }
 
 export interface CoderAgentResult {
@@ -59,7 +68,7 @@ export async function runCoderAgent(
   const { text, usage } = await input.client.generateText({
     model: input.model,
     system: buildCoderSystemPrompt(),
-    user: buildCoderUserPrompt(input.spec, input.manifest),
+    user: buildCoderUserPrompt(input.spec, input.manifest, input.patch),
     maxTokens: CODER_MAX_TOKENS,
     temperature: CODER_TEMPERATURE,
     signal: input.signal,

@@ -113,6 +113,50 @@ describe("buildCoderSystemPrompt", () => {
     expect(prompt).not.toContain("collectible_coin");
     expect(prompt).not.toContain("soundFx.play(\"pickup\")");
   });
+
+  // The gateway sits behind a WAF that answers 403 with an HTML block page for
+  // prompt text shaped like an XSS payload. The coder prompt used to contain the
+  // literal phrase that tripped it, and the resulting failure
+  // (provider_content_blocked) reads like a credential problem. This keeps a
+  // future edit from quietly reintroducing a script-tag signature.
+  test("carries no HTML script-tag signature", () => {
+    expect(prompt).not.toContain("<script");
+    expect(prompt).not.toContain("</script");
+  });
+});
+
+describe("buildCoderUserPrompt with a patch", () => {
+  const currentSource =
+    "class MainScene extends Phaser.Scene {}\nwindow.__MAIN_SCENE__ = MainScene;";
+  const patchPrompt = buildCoderUserPrompt(spec, manifest, {
+    instruction: "Make the player twice as fast",
+    currentSource,
+  });
+
+  test("asks for the whole file rather than a diff", () => {
+    expect(patchPrompt).toContain("Return the complete updated file");
+  });
+
+  test("carries the instruction", () => {
+    expect(patchPrompt).toContain("Make the player twice as fast");
+  });
+
+  // Without the current source the model would rebuild the game from the design
+  // summary, silently discarding every previous edit.
+  test("carries the current source verbatim", () => {
+    expect(patchPrompt).toContain(currentSource);
+  });
+
+  test("still names the manifest keys the scene must keep using", () => {
+    expect(patchPrompt).toContain('collect: soundFx.play("pickup")');
+    expect(patchPrompt).toContain('player: sprite key "player" is loaded');
+  });
+
+  test("is absent from an ordinary generation prompt", () => {
+    expect(buildCoderUserPrompt(spec, manifest)).not.toContain(
+      "Return the complete updated file",
+    );
+  });
 });
 
 describe("buildCoderUserPrompt", () => {

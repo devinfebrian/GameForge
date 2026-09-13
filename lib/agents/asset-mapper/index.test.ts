@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { buildAssetMapperSystemPrompt } from "@/lib/agents/asset-mapper/prompt";
 import {
+  mergeManifests,
   projectLoadCodeAssets,
   resolveManifest,
 } from "@/lib/agents/asset-mapper/index";
@@ -113,6 +114,57 @@ describe("projectLoadCodeAssets", () => {
     for (const url of Object.values(projected)) {
       expect(typeof url).toBe("string");
     }
+  });
+});
+
+describe("mergeManifests", () => {
+  const base = resolveManifest({
+    mapping: {
+      sprites: [{ entityId: "coin", assetId: "collectible_coin" }],
+      sounds: [{ event: "collect", preset: "pickup" }],
+    },
+    spec,
+    catalog,
+    supabaseUrl: SUPABASE_URL,
+  });
+
+  const nothingMapped = resolveManifest({
+    mapping: { sprites: [], sounds: [] },
+    spec,
+    catalog,
+    supabaseUrl: SUPABASE_URL,
+  });
+
+  // The patch path runs the mapper on every edit, so a tuning-only change that
+  // comes back with an empty assignment must not strip the game's art.
+  test("keeps art the new mapping does not mention", () => {
+    const merged = mergeManifests(base, nothingMapped);
+
+    expect(merged.sprites.coin).toBe(base.sprites.coin);
+    expect(merged.sprites.coin).not.toBeNull();
+    expect(merged.sounds).toEqual({ collect: "pickup" });
+  });
+
+  test("lets a new assignment win over the old one", () => {
+    const next = resolveManifest({
+      mapping: {
+        sprites: [{ entityId: "coin", assetId: "enemy_bee" }],
+        sounds: [{ event: "collect", preset: "powerup" }],
+      },
+      spec,
+      catalog,
+      supabaseUrl: SUPABASE_URL,
+    });
+
+    const merged = mergeManifests(base, next);
+
+    expect(merged.sprites.coin).toBe(next.sprites.coin);
+    expect(merged.sprites.coin).not.toBe(base.sprites.coin);
+    expect(merged.sounds.collect).toBe("powerup");
+  });
+
+  test("is a no-op when nothing was mapped", () => {
+    expect(mergeManifests(base, nothingMapped)).toEqual(base);
   });
 });
 

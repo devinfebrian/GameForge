@@ -118,3 +118,36 @@ export function projectLoadCodeAssets(
 
   return projected;
 }
+
+/**
+ * Folds a fresh mapping onto the one a version already has, for the patch path.
+ *
+ * The mapper is advisory and runs on every patch, so a tuning-only edit can
+ * still come back with a partial — or empty — assignment. Taking that literally
+ * would strip art from entities the model merely failed to mention, which reads
+ * to the user as "my sprites disappeared after I asked for a speed change".
+ * A new assignment always wins; silence preserves what was already there.
+ */
+export function mergeManifests(
+  base: ResolvedManifest,
+  next: ResolvedManifest,
+): ResolvedManifest {
+  const sprites: Record<string, string | null> = {};
+
+  for (const entityId of Object.keys(base.sprites)) {
+    sprites[entityId] = base.sprites[entityId];
+  }
+
+  for (const [entityId, url] of Object.entries(next.sprites)) {
+    if (url !== null) {
+      sprites[entityId] = url;
+    } else {
+      sprites[entityId] ??= null;
+    }
+  }
+
+  return resolvedManifestSchema.parse({
+    sprites,
+    sounds: { ...base.sounds, ...next.sounds },
+  });
+}
