@@ -5,7 +5,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export interface OwnedGame {
   readonly id: string;
   readonly userId: string;
-  readonly currentVersionId: string | null;
 }
 
 /**
@@ -22,7 +21,7 @@ export async function findOwnedGame(
 ): Promise<OwnedGame | null> {
   const { data, error } = await createAdminClient()
     .from("games")
-    .select("id, user_id, current_version_id")
+    .select("id, user_id")
     .eq("id", gameId)
     .maybeSingle();
 
@@ -37,6 +36,5 @@ export async function findOwnedGame(
   return {
     id: data.id as string,
     userId: data.user_id as string,
-    currentVersionId: (data.current_version_id as string | null) ?? null,
   };
 }

@@ -40,6 +40,14 @@ describe("normalizeSceneSource", () => {
     );
   });
 
+  test("recovers a fence wrapped in surrounding prose", () => {
+    expect(
+      normalizeSceneSource(
+        "Here is the scene:\n```js\nclass MainScene {}\n```\nEnjoy!",
+      ),
+    ).toBe("class MainScene {}");
+  });
+
   test("leaves unfenced code untouched", () => {
     const code = 'class MainScene extends Phaser.Scene {}\nwindow.__MAIN_SCENE__ = MainScene;';
 

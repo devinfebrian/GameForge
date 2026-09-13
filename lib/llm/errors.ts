@@ -1,4 +1,5 @@
 import type { GenerationStage } from "@/lib/agents/types";
+import type { LlmUsage } from "@/lib/llm/types";
 
 /**
  * The closed set of codes that cross the SSE boundary. Phase 4 branches on
@@ -23,16 +24,28 @@ export type GenerationErrorCode =
 export class GenerationError extends Error {
   readonly code: GenerationErrorCode;
   readonly stage: GenerationStage | null;
+  /**
+   * Tokens the provider had already billed when this failure happened, when the
+   * failure came from a response we did receive (a bad payload, a rejected tool
+   * call). A network, timeout, or auth failure leaves this null because nothing
+   * was charged yet.
+   */
+  readonly usage: LlmUsage | null;
 
   constructor(
     code: GenerationErrorCode,
     message: string,
-    options: { readonly stage?: GenerationStage | null; readonly cause?: unknown } = {},
+    options: {
+      readonly stage?: GenerationStage | null;
+      readonly cause?: unknown;
+      readonly usage?: LlmUsage | null;
+    } = {},
   ) {
     super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
     this.name = "GenerationError";
     this.code = code;
     this.stage = options.stage ?? null;
+    this.usage = options.usage ?? null;
   }
 }
 
@@ -54,7 +67,13 @@ export function toGenerationError(
   fallbackCode: GenerationErrorCode,
 ): GenerationError {
   if (error instanceof GenerationError) {
-    return error.stage === null ? new GenerationError(error.code, error.message, { stage }) : error;
+    return error.stage === null
+      ? new GenerationError(error.code, error.message, {
+          stage,
+          cause: error.cause,
+          usage: error.usage,
+        })
+      : error;
   }
 
   return new GenerationError(fallbackCode, `Generation failed during ${stage}.`, {

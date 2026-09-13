@@ -396,3 +396,50 @@ describe("runGeneration — persistence failure", () => {
     expect(eventNames).not.toContain("run.completed");
   });
 });
+
+describe("runGeneration — failed-stage usage", () => {
+  const FAILED_USAGE = { inputTokens: 7, outputTokens: 3 };
+
+  // A stage can fail after the provider has answered and billed: a rejected tool
+  // call, a truncated payload. Dropping those tokens under-reports the run and
+  // would let Phase 6's quota hand back budget that was actually spent.
+  test("counts tokens a failed stage was already billed for", async () => {
+    const { firstPersist, frames } = await runPipeline({
+      code: async () => {
+        throw new GenerationError("coder_failed", "Coder returned garbage.", {
+          stage: "coder",
+          usage: FAILED_USAGE,
+        });
+      },
+    });
+
+    expect(firstPersist.tokensUsed).toBe(
+      STRUCTURED_USAGE.inputTokens * 2 +
+        STRUCTURED_USAGE.outputTokens * 2 +
+        FAILED_USAGE.inputTokens +
+        FAILED_USAGE.outputTokens,
+    );
+
+    const usageFrames = frames
+      .filter((frame) => frame.event === "usage")
+      .map((frame) => frame.data as { inputTokens: number; outputTokens: number });
+
+    expect(usageFrames).toHaveLength(3);
+    expect(usageFrames[2]).toEqual({
+      inputTokens: STRUCTURED_USAGE.inputTokens * 2 + FAILED_USAGE.inputTokens,
+      outputTokens: STRUCTURED_USAGE.outputTokens * 2 + FAILED_USAGE.outputTokens,
+    });
+  });
+
+  test("leaves the budget untouched when a failure carries no usage", async () => {
+    const { firstPersist } = await runPipeline({
+      code: async () => {
+        throw new GenerationError("coder_failed", "Transport failed.", { stage: "coder" });
+      },
+    });
+
+    expect(firstPersist.tokensUsed).toBe(
+      STRUCTURED_USAGE.inputTokens * 2 + STRUCTURED_USAGE.outputTokens * 2,
+    );
+  });
+});

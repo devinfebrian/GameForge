@@ -20,6 +20,12 @@
 -- persist_generation cannot succeed without it: it names source_code, is_stable,
 -- error_log and current_version_id, none of which exist yet, and it omits slug,
 -- which is currently NOT NULL with no default.
+--
+-- Replayability: `slug`, `is_published` and `code` exist only on the linked
+-- prototype. A database built from this repository's own migrations already
+-- declares public_slug / is_public / source_code and has no such columns, so
+-- every reference to them below sits behind an information_schema guard. Without
+-- that, the unguarded updates and ALTERs would abort `supabase db reset` and CI.
 
 -- ---------------------------------------------------------------------------
 -- game_versions
@@ -33,14 +39,26 @@ alter table public.game_versions
 
 -- Carry the prototype's scene text across rather than leaving it stranded in a
 -- column this app never reads. The rename itself stays a later step.
-update public.game_versions
-   set source_code = code
- where source_code is null
-   and code is not null;
+do $$
+begin
+  if exists (
+    select 1
+      from information_schema.columns
+     where table_schema = 'public'
+       and table_name = 'game_versions'
+       and column_name = 'code'
+  ) then
+    update public.game_versions
+       set source_code = code
+     where source_code is null
+       and code is not null;
 
--- Our inserts write source_code and leave code unset.
-alter table public.game_versions
-  alter column code drop not null;
+    -- Our inserts write source_code and leave code unset.
+    alter table public.game_versions
+      alter column code drop not null;
+  end if;
+end;
+$$;
 
 -- Version numbers come from next_version_number's advisory lock, but the
 -- uniqueness backstop declared in the initial schema is missing here and belongs
@@ -81,11 +99,40 @@ alter table public.games
 
 -- The legacy slug is already in the <slugified-title>-<suffix> form this repo
 -- documents, so it is copied rather than regenerated: inventing new slugs would
--- break any link already pointing at a published game.
-update public.games
-   set public_slug = slug,
-       is_public = coalesce(is_published, false)
- where public_slug is null;
+-- break any link already pointing at a published game. Both legacy columns are
+-- absent on a database migrated from this repository, where the block is a no-op.
+do $$
+begin
+  if exists (
+    select 1
+      from information_schema.columns
+     where table_schema = 'public'
+       and table_name = 'games'
+       and column_name = 'slug'
+  ) then
+    update public.games
+       set public_slug = slug
+     where public_slug is null;
+
+    -- A new game gets its public_slug when it is published (Phase 6), not when
+    -- it is created, so the legacy NOT NULL has to go for generation to insert
+    -- at all.
+    alter table public.games
+      alter column slug drop not null;
+  end if;
+
+  if exists (
+    select 1
+      from information_schema.columns
+     where table_schema = 'public'
+       and table_name = 'games'
+       and column_name = 'is_published'
+  ) then
+    update public.games
+       set is_public = coalesce(is_published, false);
+  end if;
+end;
+$$;
 
 create unique index if not exists games_public_slug_key
   on public.games (public_slug)
@@ -118,11 +165,6 @@ begin
   end if;
 end;
 $$;
-
--- A new game gets its public_slug when it is published (Phase 6), not when it is
--- created, so the legacy NOT NULL has to go for generation to insert at all.
-alter table public.games
-  alter column slug drop not null;
 
 -- ---------------------------------------------------------------------------
 -- Deliberately not touched

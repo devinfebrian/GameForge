@@ -25,12 +25,18 @@ export async function assertModelAvailable(
   baseUrl: string,
   credential: string,
   model: string,
+  options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
 ): Promise<void> {
   const key = cacheKey(credential);
   let ids = availableModels.get(key);
 
   if (ids === undefined) {
-    ids = await listModelIds({ baseUrl, credential });
+    ids = await listModelIds({
+      baseUrl,
+      credential,
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+    });
     availableModels.set(key, ids);
   }
 

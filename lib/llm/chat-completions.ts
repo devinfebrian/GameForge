@@ -27,6 +27,11 @@ export interface GatewayOptions {
   readonly fetchImpl?: typeof fetch;
   readonly timeoutMs?: number;
   readonly retryDelayMs?: number;
+  /**
+   * Only consulted by `listModelIds`; the chat calls each carry the signal of the
+   * request they belong to.
+   */
+  readonly signal?: AbortSignal;
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -109,6 +114,7 @@ function gatewayError(status: number, detail: string): GenerationError {
     return new GenerationError(
       "provider_content_blocked",
       "The gateway's content filter rejected the request (HTTP 403 block page). The credential is fine; the prompt text is not.",
+      { cause: detail },
     );
   }
 
@@ -116,14 +122,47 @@ function gatewayError(status: number, detail: string): GenerationError {
     return new GenerationError(
       "provider_auth_failed",
       `The gateway rejected the credential (HTTP ${status}). Check ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL.`,
+      { cause: detail },
     );
   }
 
-  return new GenerationError("provider_error", `Gateway returned HTTP ${status}: ${detail}`);
+  // The gateway's own response body stays in `cause`: it can echo the prompt
+  // back, and every `GenerationError.message` is sent to the client.
+  return new GenerationError(
+    "provider_error",
+    `The model gateway returned an unexpected error (HTTP ${status}).`,
+    { cause: detail },
+  );
 }
 
 function describeNetworkFailure(reason: string): GenerationError {
-  return new GenerationError("provider_error", `Gateway request failed: ${reason}`);
+  return new GenerationError("provider_error", "The gateway request failed.", {
+    cause: reason,
+  });
+}
+
+function describeTimeout(failureHint: string, timeoutMs: number): GenerationError {
+  return new GenerationError(
+    "provider_error",
+    `The ${failureHint} request timed out after ${timeoutMs}ms.`,
+  );
+}
+
+/**
+ * Re-throws a failure with the tokens the provider already billed for a response
+ * we did receive, so a stage that fails after the model answered is still counted
+ * against the run's budget. Transport failures have no response and keep null.
+ */
+function attachUsage(error: unknown, usage: LlmUsage): unknown {
+  if (error instanceof GenerationError && error.usage === null) {
+    return new GenerationError(error.code, error.message, {
+      stage: error.stage,
+      cause: error.cause,
+      usage,
+    });
+  }
+
+  return error;
 }
 
 /**
@@ -144,7 +183,15 @@ function linkAbort(
   }, timeoutMs);
 
   const onOuterAbort = (): void => controller.abort();
-  outer.addEventListener("abort", onOuterAbort);
+
+  // An AbortSignal fires its event once. A listener added after the signal has
+  // already aborted never runs, so a caller that disconnects before we start must
+  // be checked explicitly or the request would proceed regardless.
+  if (outer.aborted) {
+    controller.abort();
+  } else {
+    outer.addEventListener("abort", onOuterAbort);
+  }
 
   return {
     signal: controller.signal,
@@ -207,7 +254,7 @@ async function requestJson(
       }
 
       if (linked.timedOut()) {
-        throw describeNetworkFailure(`${failureHint} timed out after ${options.timeoutMs}ms`);
+        throw describeTimeout(failureHint, options.timeoutMs);
       }
 
       if (init.signal.aborted) {
@@ -285,22 +332,29 @@ export function createGatewayClient(options: GatewayOptions): LlmClient {
       };
 
       const { body, usage } = await post(payload, request.signal);
-      const args = extractToolArguments(body, request.toolName);
-
-      let raw: unknown;
 
       try {
-        raw = JSON.parse(args) as unknown;
-      } catch {
-        // A truncated arguments string is a transport-level failure, not a
-        // schema disagreement: reporting it as spec_failed would blame the prompt.
-        throw new GenerationError(
-          "provider_error",
-          `${request.toolName} returned arguments that are not valid JSON.`,
-        );
-      }
+        const args = extractToolArguments(body, request.toolName);
 
-      return { data: request.parse(raw), usage };
+        let raw: unknown;
+
+        try {
+          raw = JSON.parse(args) as unknown;
+        } catch {
+          // A truncated arguments string is a transport-level failure, not a
+          // schema disagreement: reporting it as spec_failed would blame the prompt.
+          throw new GenerationError(
+            "provider_error",
+            `${request.toolName} returned arguments that are not valid JSON.`,
+          );
+        }
+
+        return { data: request.parse(raw), usage };
+      } catch (error) {
+        // Everything past `post` has a billable response in hand, so a failure
+        // here still carries the tokens it cost.
+        throw attachUsage(error, usage);
+      }
     },
 
     async generateText(request: TextRequest): Promise<TextResult> {
@@ -327,7 +381,7 @@ export async function listModelIds(options: GatewayOptions): Promise<ReadonlySet
   const body = (await requestJson(
     resolved,
     joinGatewayUrl(resolved.baseUrl, "/v1/models"),
-    { method: "GET", signal: new AbortController().signal },
+    { method: "GET", signal: options.signal ?? new AbortController().signal },
     "model list",
   )) as { data?: ReadonlyArray<{ id?: string }> };
 

@@ -7,12 +7,19 @@ import { buildCoderSystemPrompt, buildCoderUserPrompt } from "./prompt";
 const CODER_MAX_TOKENS = 8192;
 const CODER_TEMPERATURE = 0.4;
 
-const FENCE_PATTERN = /^\s*```(?:javascript|js)?\s*\n?([\s\S]*?)\n?\s*```\s*$/;
+/**
+ * Matches the first fenced block anywhere in the response. It is deliberately
+ * not anchored to the whole string: the model is told to emit bare JavaScript,
+ * but a fenced answer wrapped in a sentence ("Here is the scene: ...") is
+ * cosmetically identical and otherwise fatal, because a literal ``` line is a
+ * syntax error the moment the Blob script is evaluated.
+ */
+const FENCE_PATTERN = /```(?:javascript|js)?[ \t]*\r?\n?([\s\S]*?)```/;
 
 /**
- * The model is told to emit bare JavaScript and mostly does, but a fenced answer
- * is cosmetically identical and otherwise fatal: a literal ``` line is a syntax
- * error the moment the Blob script is evaluated.
+ * Strips a markdown fence if the model wrapped its answer in one. A literal ```
+ * line is a syntax error the moment the Blob script is evaluated, so this must
+ * run before the source is persisted.
  *
  * This is the only inspection Phase 3 performs on the scene. Whether the source
  * actually defines `window.__MAIN_SCENE__` and parses is Phase 4's boot gate and

@@ -22,6 +22,14 @@ export const dynamic = "force-dynamic";
 // stream that simply stops.
 export const maxDuration = 300;
 
+// Per-call budgets, chosen so the worst case fits inside maxDuration: the
+// pre-stream model-list lookup plus three sequential calls is 15s + 3 * 90s =
+// 285s. Leaving the transport's own 120s default would allow 120s + 360s, and a
+// hung final call would be killed by the platform before an error frame could be
+// written — the dead stream this ceiling exists to prevent.
+const MODEL_LIST_TIMEOUT_MS = 15_000;
+const MODEL_CALL_TIMEOUT_MS = 90_000;
+
 const PROMPT_MAX_LENGTH = 2000;
 
 const generateRequestSchema = z.object({
@@ -126,9 +134,19 @@ export async function POST(request: Request): Promise<Response> {
     models = await loadAgentModels();
 
     for (const model of new Set(Object.values(models))) {
-      await assertModelAvailable(baseUrl, credential, model);
+      await assertModelAvailable(baseUrl, credential, model, {
+        signal: request.signal,
+        timeoutMs: MODEL_LIST_TIMEOUT_MS,
+      });
     }
   } catch (error) {
+    // The model-list fetch is now tied to the request signal, so a disconnect
+    // here surfaces as an abort rather than an unhandled rejection. There is no
+    // client left to read it, but the status stays honest.
+    if (request.signal.aborted) {
+      return preStreamFailure("aborted", "The request was cancelled.");
+    }
+
     return asPreStreamFailure(error);
   }
 
@@ -137,7 +155,11 @@ export async function POST(request: Request): Promise<Response> {
       await runGeneration(
         { prompt: body.data.prompt, gameId, userId: profile.id },
         {
-          client: createGatewayClient({ baseUrl, credential }),
+          client: createGatewayClient({
+            baseUrl,
+            credential,
+            timeoutMs: MODEL_CALL_TIMEOUT_MS,
+          }),
           models,
           catalog: catalogSchema.parse(catalogJson),
           supabaseUrl: getPublicEnv().supabaseUrl,

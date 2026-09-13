@@ -151,6 +151,16 @@ async function executeGeneration(
       deps.emit({ event: "usage", data: cumulative() });
       return { ok: true, value: result.value };
     } catch (error) {
+      // A stage can fail after the provider has already billed for its response
+      // (a bad payload, a rejected tool call). Those tokens still count, so they
+      // are folded into the total and reported before the failure propagates.
+      const spent = error instanceof GenerationError ? error.usage : null;
+
+      if (spent !== null) {
+        usage = addUsage(usage, spent);
+        deps.emit({ event: "usage", data: cumulative() });
+      }
+
       return { ok: false, error };
     }
   }

@@ -42,7 +42,7 @@ export interface StructuredRequest<T> {
   readonly signal: AbortSignal;
   /**
    * Narrows the model's JSON payload to the agent's type, throwing
-   * `StructuredOutputError` on mismatch. The Zod schema stays the single source
+   * `GenerationError` on mismatch. The Zod schema stays the single source
    * of truth; the JSON Schema above is derived from it.
    */
   readonly parse: (raw: unknown) => T;
