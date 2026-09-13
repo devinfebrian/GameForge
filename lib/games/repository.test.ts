@@ -40,11 +40,6 @@ const SPEC = {
   ],
 };
 
-const MANIFEST = {
-  sprites: { player: "kenney/player.png" },
-  sounds: { shoot: "laser" },
-};
-
 beforeEach(() => {
   adminDouble.reset();
 });
@@ -58,7 +53,6 @@ describe("findDebugBase", () => {
           id: "root-1",
           source_code: "window.__MAIN_SCENE__ = MainScene;",
           spec: SPEC,
-          asset_manifest: MANIFEST,
           debug_of_version_id: null,
         },
         error: null,
@@ -80,7 +74,6 @@ describe("findDebugBase", () => {
           id: "candidate-1",
           source_code: "code",
           spec: SPEC,
-          asset_manifest: MANIFEST,
           debug_of_version_id: "root-1",
         },
         error: null,
@@ -115,7 +108,6 @@ describe("findDebugBase", () => {
           id: "tombstone-1",
           source_code: null,
           spec: SPEC,
-          asset_manifest: MANIFEST,
           debug_of_version_id: "root-1",
         },
         error: null,

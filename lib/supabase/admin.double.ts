@@ -8,22 +8,23 @@
  * shared `adminDouble` state, which makes the suite order-independent.
  *
  * Only test files import this module; it is never part of the application graph.
+ * The chain exposes just the methods the tested code paths call.
  */
 
-/** What a `from(...).select(...)...` chain resolves to. */
-export interface AdminQueryResult {
+/** What a `from(...).select(...).eq(...).maybeSingle()` chain resolves to. */
+interface AdminQueryResult {
   readonly data?: unknown;
   readonly count?: number | null;
   readonly error: { readonly message: string; readonly code?: string } | null;
 }
 
 /** What an `rpc(...)` call resolves to. */
-export interface AdminRpcResponse {
+interface AdminRpcResponse {
   readonly data: unknown;
   readonly error: { readonly message: string; readonly code: string } | null;
 }
 
-export interface AdminRpcCall {
+interface AdminRpcCall {
   readonly fn: string;
   readonly args: Record<string, unknown>;
 }
@@ -31,9 +32,7 @@ export interface AdminRpcCall {
 interface QueryChain {
   select: () => QueryChain;
   eq: () => QueryChain;
-  order: () => QueryChain;
   maybeSingle: () => Promise<AdminQueryResult>;
-  single: () => Promise<AdminQueryResult>;
   then: (onFulfilled: (value: AdminQueryResult) => unknown) => Promise<unknown>;
 }
 
@@ -69,9 +68,7 @@ export function createAdminClientDouble(): {
   const chain: QueryChain = {
     select: () => chain,
     eq: () => chain,
-    order: () => chain,
     maybeSingle: async () => adminDouble.shiftQuery(),
-    single: async () => adminDouble.shiftQuery(),
     then: (onFulfilled) => Promise.resolve(adminDouble.shiftQuery()).then(onFulfilled),
   };
 

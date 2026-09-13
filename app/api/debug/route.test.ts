@@ -37,11 +37,6 @@ const SPEC = {
   ],
 };
 
-const MANIFEST = {
-  sprites: { player: "kenney/player.png" },
-  sounds: { shoot: "laser" },
-};
-
 const BODY = {
   gameId: GAME_ID,
   versionId: VERSION_ID,
@@ -91,14 +86,13 @@ function gameRow(currentVersionId: string | null, userId = "user-1") {
   };
 }
 
-function versionRow(debugOf: string | null) {
+function versionRow() {
   return {
     data: {
       id: VERSION_ID,
       source_code: "previous source",
       spec: SPEC,
-      asset_manifest: MANIFEST,
-      debug_of_version_id: debugOf,
+      debug_of_version_id: null,
     },
     error: null,
   };
@@ -106,7 +100,7 @@ function versionRow(debugOf: string | null) {
 
 /** The three reads a repair performs: owner, base version, attempt count. */
 function queueDebugReads(currentVersionId: string, count: number): void {
-  adminDouble.queryQueue = [gameRow(currentVersionId), versionRow(null), { count, error: null }];
+  adminDouble.queryQueue = [gameRow(currentVersionId), versionRow(), { count, error: null }];
 }
 
 function post(body: unknown): Promise<Response> {

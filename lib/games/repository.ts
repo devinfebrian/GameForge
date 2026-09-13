@@ -412,7 +412,6 @@ const debugBaseRowSchema = z.object({
   id: z.string(),
   source_code: z.string(),
   spec: z.unknown(),
-  asset_manifest: z.unknown(),
   debug_of_version_id: z.string().nullable(),
 });
 
@@ -420,7 +419,6 @@ export interface DebugBase {
   readonly versionId: string;
   readonly sourceCode: string;
   readonly spec: GameSpec;
-  readonly manifest: ResolvedManifest;
   /** The root of the repair session: this version, or the root it descends from. */
   readonly rootVersionId: string;
   /**
@@ -457,7 +455,7 @@ export async function findDebugBase(options: {
 
   const { data, error } = await createAdminClient()
     .from("game_versions")
-    .select("id, source_code, spec, asset_manifest, debug_of_version_id")
+    .select("id, source_code, spec, debug_of_version_id")
     .eq("id", versionId)
     .eq("game_id", gameId)
     .maybeSingle();
@@ -480,7 +478,6 @@ export async function findDebugBase(options: {
     versionId: parsed.data.id,
     sourceCode: parsed.data.source_code,
     spec: gameSpecSchema.parse(parsed.data.spec),
-    manifest: resolvedManifestSchema.parse(parsed.data.asset_manifest),
     rootVersionId: parsed.data.debug_of_version_id ?? parsed.data.id,
     isCurrent: owner.currentVersionId === parsed.data.id,
   };
