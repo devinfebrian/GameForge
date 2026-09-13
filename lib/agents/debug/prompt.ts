@@ -15,9 +15,11 @@ export interface DebugErrorReport {
 
 // Error text is attacker-influenced: a scene can throw any message it likes. It
 // is data handed to the model, never instructions, and it is bounded so a
-// crafted stack cannot crowd out the source it is supposed to explain.
-const MAX_ERROR_MESSAGE_CHARS = 2_000;
-const MAX_STACK_CHARS = 4_000;
+// crafted stack cannot crowd out the source it is supposed to explain. These
+// bounds are exported so the route's request schema rejects the same limits
+// instead of drifting from them.
+export const MAX_ERROR_MESSAGE_CHARS = 2_000;
+export const MAX_STACK_CHARS = 4_000;
 const MAX_SOURCE_CHARS = 24_000;
 
 function clip(value: string, max: number): string {

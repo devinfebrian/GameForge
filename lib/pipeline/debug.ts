@@ -65,9 +65,14 @@ export type DebugOutcome =
  *
  * The attempt count is read from the database rather than accepted from the
  * client, so a reload cannot reset it and a fourth call cannot be smuggled past
- * the ceiling. Making the pointer safe is the route's job, done before this runs
- * and before the model is even resolved, so a broken version stops being the
- * game's resting state from the first repair request onward.
+ * the ceiling. Reading the count and writing the attempt are two statements, so
+ * they cannot interleave only because the route holds the user's single run slot
+ * for the whole request; that slot's database expiry (6 minutes) is longer than
+ * the route's `maxDuration` (5 minutes), so no second attempt can start while
+ * this one is between its count and its write. Making the pointer safe is the
+ * route's job, done before this runs and before the model is even resolved, so a
+ * broken version stops being the game's resting state from the first repair
+ * request onward.
  *
  * The server cannot observe whether the candidate boots — that happens in the
  * browser — so this returns the candidate and the client reports back through

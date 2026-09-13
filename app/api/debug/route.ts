@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  MAX_ERROR_MESSAGE_CHARS,
+  MAX_STACK_CHARS,
+} from "@/lib/agents/debug/prompt";
 import { getCurrentProfile } from "@/lib/dal";
 import { getServerEnv } from "@/lib/env/server";
 import {
@@ -24,14 +28,11 @@ export const dynamic = "force-dynamic";
 // budget. Three attempts are three requests, not one held-open stream.
 export const maxDuration = 300;
 
-const MAX_ERROR_MESSAGE_CHARS = 2_000;
-const MAX_STACK_CHARS = 4_000;
-
 const errorReportSchema = z.object({
   message: z.string().min(1).max(MAX_ERROR_MESSAGE_CHARS),
   stack: z.string().max(MAX_STACK_CHARS).nullable(),
-  line: z.number().int().nullable(),
-  column: z.number().int().nullable(),
+  line: z.number().int().nonnegative().nullable(),
+  column: z.number().int().nonnegative().nullable(),
   phase: z.enum(["preload", "create", "update"]),
 });
 
@@ -99,9 +100,13 @@ export async function POST(request: Request): Promise<Response> {
   let status: RunStatus = "failed";
 
   try {
-    // Before anything that can fail. Idempotent, so repeated attempts and a
-    // mid-repair reload all converge on the same safe pointer.
-    await resetCurrentToStable(gameId, profile.id);
+    // Before anything that can fail, but only when the failing version is the one
+    // the game actually rests on: repairing an older snapshot must not drag
+    // current_version_id back off a newer version. Idempotent, so repeated
+    // attempts and a mid-repair reload all converge on the same safe pointer.
+    if (base.isCurrent) {
+      await resetCurrentToStable(gameId, profile.id);
+    }
 
     const bootstrap = await resolveDebugLlm(getServerEnv(), request.signal);
 

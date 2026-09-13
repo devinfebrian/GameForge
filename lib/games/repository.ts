@@ -11,6 +11,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export interface OwnedGame {
   readonly id: string;
   readonly userId: string;
+  /** The version the game rests on. Needed so a repair only resets the current one. */
+  readonly currentVersionId: string | null;
 }
 
 /**
@@ -27,7 +29,7 @@ export async function findOwnedGame(
 ): Promise<OwnedGame | null> {
   const { data, error } = await createAdminClient()
     .from("games")
-    .select("id, user_id")
+    .select("id, user_id, current_version_id")
     .eq("id", gameId)
     .maybeSingle();
 
@@ -42,6 +44,8 @@ export async function findOwnedGame(
   return {
     id: data.id as string,
     userId: data.user_id as string,
+    currentVersionId:
+      typeof data.current_version_id === "string" ? data.current_version_id : null,
   };
 }
 
@@ -419,6 +423,12 @@ export interface DebugBase {
   readonly manifest: ResolvedManifest;
   /** The root of the repair session: this version, or the root it descends from. */
   readonly rootVersionId: string;
+  /**
+   * True when this version is the one `games.current_version_id` points at. The
+   * route only resets the pointer for a failing *current* version; a repair of an
+   * older snapshot must not drag the game off a newer one.
+   */
+  readonly isCurrent: boolean;
 }
 
 /**
@@ -472,6 +482,7 @@ export async function findDebugBase(options: {
     spec: gameSpecSchema.parse(parsed.data.spec),
     manifest: resolvedManifestSchema.parse(parsed.data.asset_manifest),
     rootVersionId: parsed.data.debug_of_version_id ?? parsed.data.id,
+    isCurrent: owner.currentVersionId === parsed.data.id,
   };
 }
 

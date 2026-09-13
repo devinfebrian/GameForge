@@ -336,6 +336,13 @@ export function StudioWorkspace({
           router.refresh();
           return;
         }
+
+        // Belt-and-braces: every server status above returns from inside the
+        // loop, so reaching here means the bound ran out without a terminal
+        // answer. Say so rather than leaving "Repairing..." on screen forever.
+        setEvaluateVersionId(null);
+        setRepairNotice("Automatic repair could not be completed. Try again.");
+        router.refresh();
       } catch {
         setRepairNotice("Automatic repair could not be started.");
       } finally {
