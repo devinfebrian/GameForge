@@ -10,6 +10,7 @@ export type GenerationErrorCode =
   | "invalid_body"
   | "unauthorized"
   | "game_not_found"
+  | "run_in_progress"
   | "config_missing"
   | "model_unavailable"
   | "provider_auth_failed"

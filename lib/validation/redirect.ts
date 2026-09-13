@@ -1,4 +1,6 @@
-const DEFAULT_PATH = "/dashboard";
+// Where a signed-in user lands when no explicit target was requested: the
+// Studio, which is the product's home.
+const DEFAULT_PATH = "/studio";
 
 export function safeRedirectPath(
   candidate: FormDataEntryValue | string | null | undefined,

@@ -15,6 +15,7 @@ const PRESET_BY_NAME = {
 
 let api = null;
 let unlocked = false;
+let muted = false;
 
 function resolveApi() {
   if (api === null) {
@@ -53,8 +54,21 @@ export const soundFx = {
   },
 
   play(name) {
+    // Checked before the preset lookup: muting should cost nothing, and
+    // generating an effect only to discard it would still allocate buffers.
+    if (muted) {
+      return false;
+    }
+
     const presetName = PRESET_BY_NAME[name];
     return presetName === undefined ? false : playPreset(presetName);
+  },
+
+  // Module scope, so a mute survives LOAD_CODE tearing down and rebuilding the
+  // game: the runner is not reloaded, only the scene is.
+  setMuted(value) {
+    muted = value === true;
+    return muted;
   },
 
   // Warm the audio path from inside a real user gesture. Generating a silent

@@ -7,6 +7,7 @@ export const PARENT_TO_FRAME_TYPES = [
   "PAUSE_GAME",
   "RESUME_GAME",
   "RESTART_GAME",
+  "SET_MUTED",
 ] as const;
 
 export const FRAME_TO_PARENT_TYPES = [
@@ -33,11 +34,19 @@ const pauseGameSchema = z.object({ type: z.literal("PAUSE_GAME") });
 const resumeGameSchema = z.object({ type: z.literal("RESUME_GAME") });
 const restartGameSchema = z.object({ type: z.literal("RESTART_GAME") });
 
+// The parent owns the mute state; the frame only applies it. No acknowledgement
+// is sent back, because there is nothing the parent could do with one.
+const setMutedSchema = z.object({
+  type: z.literal("SET_MUTED"),
+  muted: z.boolean(),
+});
+
 export const parentToFrameMessageSchema = z.discriminatedUnion("type", [
   loadCodeSchema,
   pauseGameSchema,
   resumeGameSchema,
   restartGameSchema,
+  setMutedSchema,
 ]);
 
 const sceneReadySchema = z.object({

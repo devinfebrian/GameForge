@@ -21,7 +21,7 @@ export async function SiteNav() {
         </div>
       ) : (
         <div className="flex items-center gap-4 text-sm">
-          <Link href="/dashboard" className="underline">
+          <Link href="/studio" className="underline">
             Studio
           </Link>
           {profile.role === "admin" ? (

@@ -44,6 +44,31 @@ bun test
 
 `bun run build` is run by the deploy platform, not locally (see [`AGENTS.md`](./AGENTS.md)).
 
+### End-to-end tests
+
+```bash
+bunx playwright install chromium webkit   # once
+bun run test:e2e
+```
+
+The suite runs against **its own Supabase project**, configured in a gitignored
+`.env.e2e.local` (copy [`.env.e2e.example`](./.env.e2e.example)). It must not point
+at the linked project: it writes real games and versions. When the file is absent
+the suite starts no server and every spec skips, rather than falling back to
+`.env.local`.
+
+The dev server runs with `GENERATION_FAKE=1`, which swaps the gateway for a
+deterministic in-process fake in `/api/generate` and `/api/patch`. That is why a
+run needs no model credentials, spends no tokens, and is reproducible. The flag
+is refused outright when `NODE_ENV` is `production`, and the fake itself is only
+reachable from those two route handlers.
+
+Playwright covers Chromium and WebKit. WebKit is what exercises the sandbox's
+opaque-origin CSP, which cannot be reproduced in Chromium and cannot be tested on
+Windows any other way. Not verifiable headlessly, and therefore still manual:
+audible mute, actual fullscreen, and audio output.
+
+
 ## Sandbox and assets
 
 `bun install` copies the browser builds of Phaser and jsfxr into

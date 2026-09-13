@@ -2,31 +2,32 @@ import { z } from "zod";
 import { catalogSchema } from "@/lib/assets/catalog";
 import catalogJson from "@/lib/assets/catalog.json";
 import { getCurrentProfile } from "@/lib/dal";
-import { findOwnedGame } from "@/lib/games/repository";
-import { beginGenerationRun, finishGenerationRun, type RunStatus } from "@/lib/games/run-guard";
 import { getPublicEnv } from "@/lib/env/public";
 import { getServerEnv } from "@/lib/env/server";
-import { runGeneration } from "@/lib/pipeline/generate";
+import { findPatchBase } from "@/lib/games/repository";
+import {
+  beginGenerationRun,
+  finishGenerationRun,
+  type RunStatus,
+} from "@/lib/games/run-guard";
 import { preStreamFailure } from "@/lib/pipeline/http-status";
 import { resolveLlmBootstrap } from "@/lib/pipeline/llm-bootstrap";
+import { runPatch } from "@/lib/pipeline/patch";
 import { persistGeneration } from "@/lib/pipeline/persist";
 import { createSseResponse } from "@/lib/pipeline/sse-stream";
 
-// The Anthropic SDK and a minutes-long streamed body both require Node.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Three sequential model calls. Without an explicit ceiling the platform's
-// default function timeout kills the run mid-Coder and the client is left with a
-// stream that simply stops.
+// Two sequential model calls plus the model-list lookup. The ceiling matches
+// /api/generate: the run slot, not the transport, is what bounds concurrency.
 export const maxDuration = 300;
 
-const PROMPT_MAX_LENGTH = 2000;
+const INSTRUCTION_MAX_LENGTH = 2000;
 
-const generateRequestSchema = z.object({
-  prompt: z.string().trim().min(1).max(PROMPT_MAX_LENGTH),
-  /** Omitted or null starts a new game; a uuid appends a version to an existing one. */
-  gameId: z.uuid().nullish(),
+const patchRequestSchema = z.object({
+  gameId: z.uuid(),
+  instruction: z.string().trim().min(1).max(INSTRUCTION_MAX_LENGTH),
 });
 
 async function readJsonBody(request: Request): Promise<unknown> {
@@ -38,35 +39,36 @@ async function readJsonBody(request: Request): Promise<unknown> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  // The DAL, not the proxy: proxy.ts never matches /api/generate, and an
-  // optimistic redirect is not an authorization decision. getCurrentProfile is
-  // used over requireUser because requireUser redirects to an HTML login page,
-  // which is a nonsense answer to give a fetch client.
+  // Same reasoning as /api/generate: the DAL decides, and a redirect to an HTML
+  // login page is a nonsense answer for a fetch client.
   const profile = await getCurrentProfile();
 
   if (profile === null) {
-    return preStreamFailure("unauthorized", "Sign in to generate games.");
+    return preStreamFailure("unauthorized", "Sign in to edit games.");
   }
 
-  const body = generateRequestSchema.safeParse(await readJsonBody(request));
+  const body = patchRequestSchema.safeParse(await readJsonBody(request));
 
   if (!body.success) {
     return preStreamFailure(
       "invalid_body",
-      `A prompt of 1-${PROMPT_MAX_LENGTH} characters is required, with an optional gameId.`,
+      `A gameId and an instruction of 1-${INSTRUCTION_MAX_LENGTH} characters are required.`,
     );
   }
 
-  const gameId = body.data.gameId ?? null;
+  const { gameId, instruction } = body.data;
 
-  if (gameId !== null && (await findOwnedGame(gameId, profile.id)) === null) {
-    // Identical for "does not exist" and "not yours", so this endpoint cannot be
-    // used to probe other people's game ids.
-    return preStreamFailure("game_not_found", "No such game for this user.");
+  // Loaded before the stream opens: the base version's spec and manifest are the
+  // inputs to the Coder prompt, and a game with nothing to patch should be a real
+  // 404 rather than a stream that fails immediately.
+  const base = await findPatchBase(gameId, profile.id);
+
+  if (base === null) {
+    // Identical for "no such game", "not yours", and "no version with source",
+    // so this cannot be used to probe other people's game ids.
+    return preStreamFailure("game_not_found", "No editable version for this game.");
   }
 
-  // Reading env is central; requiring it is not. Missing gateway config takes
-  // generation offline and nothing else.
   const bootstrap = await resolveLlmBootstrap(getServerEnv(), request.signal);
 
   if (!bootstrap.ok) {
@@ -75,8 +77,8 @@ export async function POST(request: Request): Promise<Response> {
 
   const { client, models } = bootstrap;
 
-  // Claimed before the stream opens, so an overlapping run is a real 409 rather
-  // than an in-band error on a 200 response. Released in the stream's finally.
+  // One run slot per user, shared with /api/generate, so a patch and a
+  // generation cannot overlap and race for games.current_version_id.
   const runId = await beginGenerationRun(profile.id, gameId);
 
   if (runId === null) {
@@ -91,8 +93,8 @@ export async function POST(request: Request): Promise<Response> {
       let status: RunStatus = "failed";
 
       try {
-        const outcome = await runGeneration(
-          { prompt: body.data.prompt, gameId, userId: profile.id },
+        const outcome = await runPatch(
+          { gameId, userId: profile.id, instruction, base },
           {
             client,
             models,
@@ -112,7 +114,7 @@ export async function POST(request: Request): Promise<Response> {
     },
     onUnexpectedError: (error) => {
       // Server-side only: the stream body stays free of exception detail.
-      console.error("[/api/generate] unhandled pipeline failure", error);
+      console.error("[/api/patch] unhandled pipeline failure", error);
     },
   });
 }
