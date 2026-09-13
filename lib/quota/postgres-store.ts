@@ -1,5 +1,6 @@
 import "server-only";
 
+import { GenerationError } from "@/lib/llm/errors";
 import { quotaRefusal, type QuotaStore } from "@/lib/quota/types";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -46,7 +47,12 @@ export function createPostgresQuotaStore(config: PostgresQuotaConfig): QuotaStor
       });
 
       if (error !== null) {
-        throw new Error(`Failed to check the run quota: ${error.message}`);
+        // Fail closed, but as a service failure rather than a policy refusal: an
+        // unanswerable check must not let an unguarded run start, and the caller
+        // sees 503 rather than 429.
+        console.error(`[quota] failed to check the run quota for ${userId}`, error);
+
+        return quotaRefusal("quota_unavailable");
       }
 
       // Anything other than the two known codes (including null) means allowed,
@@ -87,7 +93,9 @@ export function createPostgresQuotaStore(config: PostgresQuotaConfig): QuotaStor
       });
 
       if (error !== null) {
-        throw new Error(`Failed to read token usage: ${error.message}`);
+        throw new GenerationError("quota_unavailable", "Could not read today's token usage.", {
+          cause: error.message,
+        });
       }
 
       return {

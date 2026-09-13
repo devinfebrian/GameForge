@@ -54,6 +54,22 @@ function isEnabled(value: string | undefined): boolean {
   return normalized === "1" || normalized === "true" || normalized === "yes";
 }
 
+/**
+ * A blank environment variable (`KEY=`) is not a configured value. `.env` files
+ * commonly carry keys with empty values, and a copied `.env.example` must not
+ * turn an optional credential into a parse failure.
+ */
+function withoutBlankValues(
+  values: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  return Object.fromEntries(
+    Object.entries(values).map(([key, value]) => [
+      key,
+      typeof value === "string" && value.trim() === "" ? undefined : value,
+    ]),
+  );
+}
+
 let cached: ServerEnv | null = null;
 
 export function getServerEnv(): ServerEnv {
@@ -61,16 +77,18 @@ export function getServerEnv(): ServerEnv {
     return cached;
   }
 
-  const parsed = serverEnvSchema.safeParse({
-    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
-    ADMIN_EMAILS: process.env.ADMIN_EMAILS,
-    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-    ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
-    GENERATION_FAKE: process.env.GENERATION_FAKE,
-    INTEGRATION_ENCRYPTION_KEY: process.env.INTEGRATION_ENCRYPTION_KEY,
-    DAILY_TOKEN_BUDGET: process.env.DAILY_TOKEN_BUDGET,
-    RUN_BURST_PER_MINUTE: process.env.RUN_BURST_PER_MINUTE,
-  });
+  const parsed = serverEnvSchema.safeParse(
+    withoutBlankValues({
+      SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+      ADMIN_EMAILS: process.env.ADMIN_EMAILS,
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+      GENERATION_FAKE: process.env.GENERATION_FAKE,
+      INTEGRATION_ENCRYPTION_KEY: process.env.INTEGRATION_ENCRYPTION_KEY,
+      DAILY_TOKEN_BUDGET: process.env.DAILY_TOKEN_BUDGET,
+      RUN_BURST_PER_MINUTE: process.env.RUN_BURST_PER_MINUTE,
+    }),
+  );
 
   if (!parsed.success) {
     const missing = parsed.error.issues

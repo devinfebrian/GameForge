@@ -137,16 +137,21 @@ export interface StudioWorkspaceProps {
   readonly currentVersionId: string | null;
   readonly versions: ReadonlyArray<VersionSummary>;
   readonly messages: ReadonlyArray<TranscriptMessage>;
-  /** Today's token usage for the signed-in user, for the budget bar. */
-  readonly quota: QuotaStatus;
+  /** Today's token usage for the signed-in user, or null when it could not be read. */
+  readonly quota: QuotaStatus | null;
 }
 
 /**
  * The signed-in user's share of today's token budget. An admin has no ceiling,
  * so there is no bar to draw; the exact counts live in the tooltip rather than
- * the label so the header stays quiet.
+ * the label so the header stays quiet. A null quota means the read failed, so
+ * the bar is omitted rather than showing a misleading figure.
  */
-function QuotaBar({ quota }: { readonly quota: QuotaStatus }) {
+function QuotaBar({ quota }: { readonly quota: QuotaStatus | null }) {
+  if (quota === null) {
+    return null;
+  }
+
   if (quota.dailyLimit === null) {
     return <span className="text-xs opacity-70">Unlimited</span>;
   }

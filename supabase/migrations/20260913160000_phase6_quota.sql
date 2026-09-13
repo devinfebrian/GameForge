@@ -1,13 +1,13 @@
--- GameForge AI: refundable daily token budget and burst limiter (Phase 6)
+-- GameForge AI: daily token budget and burst limiter (Phase 6)
 --
 -- Two limits, deliberately Postgres-backed rather than Redis:
 --
 --   burst     a sliding window over generation_runs, which already records one
 --             row per claimed run with a started_at index. No new state, and the
 --             count is a normal indexed range scan.
---   budget    a per-(user, UTC day) counter. It is incremented only when a run
---             completes, so a failed or aborted run is never charged and no
---             refund path is needed at all.
+--   budget    a per-(user, UTC day) counter, incremented at each run's terminal
+--             state by the tokens that run actually spent. Nothing is ever
+--             decremented, so no refund path is needed at all.
 --
 -- The window and the budget are checked before the run slot is claimed, not
 -- inside begin_generation_run. A lost race between the check and the claim then
@@ -85,7 +85,7 @@ $$;
 -- add_token_usage / token_usage_today
 -- ---------------------------------------------------------------------------
 
--- Adds a completed run's tokens to today's counter and returns the new total.
+-- Adds a run's tokens to today's counter and returns the new total.
 -- A non-positive p_tokens is a no-op that returns the current total, so callers
 -- can report "charged nothing" without a special case.
 create or replace function public.add_token_usage(
@@ -159,7 +159,7 @@ grant execute on function public.add_token_usage(uuid, bigint) to service_role;
 grant execute on function public.token_usage_today(uuid) to service_role;
 
 comment on table public.user_token_usage is
-  'Per-user, per-UTC-day token spend. Charged only when a run completes; failed and aborted runs are free by construction.';
+  'Per-user, per-UTC-day token spend. Charged at each run''s terminal state for the tokens it spent; never decremented.';
 
 comment on function public.check_run_allowed(uuid, bigint, integer) is
   'NULL when a run may start, else ''rate_limited'' (burst window) or ''quota_exceeded'' (daily budget).';

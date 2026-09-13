@@ -229,7 +229,8 @@ describe("runPatch", () => {
   test("persists nothing and emits no terminal frame when aborted", async () => {
     const { outcome, frames, persistCalls } = await runHarness({ abortDuringCoder: true });
 
-    // The mapper had already answered and been billed before the coder aborted.
+    // The mapper had already answered before the coder aborted, so its tokens
+    // are reported for the route to charge.
     expect(outcome).toEqual({
       status: "aborted",
       tokensUsed: STRUCTURED_USAGE.inputTokens + STRUCTURED_USAGE.outputTokens,

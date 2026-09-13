@@ -68,12 +68,22 @@ describe("checkRunAllowed", () => {
     expect(adminDouble.rpcCalls).toHaveLength(0);
   });
 
-  test("throws when the check itself fails", async () => {
+  // Fail closed, but as a service failure (503) rather than a policy refusal,
+  // and without throwing so the route maps it like any other refusal.
+  test("refuses with quota_unavailable when the check itself fails", async () => {
     adminDouble.rpcQueue = [{ data: null, error: { message: "boom", code: "XX000" } }];
 
-    await expect(
-      createPostgresQuotaStore(CONFIG).checkRunAllowed("user-1", false),
-    ).rejects.toThrow("Failed to check the run quota");
+    const original = console.error;
+    console.error = () => {};
+
+    try {
+      expect(await createPostgresQuotaStore(CONFIG).checkRunAllowed("user-1", false)).toEqual({
+        code: "quota_unavailable",
+        message: "The run could not be started: the quota check failed. Try again shortly.",
+      });
+    } finally {
+      console.error = original;
+    }
   });
 });
 

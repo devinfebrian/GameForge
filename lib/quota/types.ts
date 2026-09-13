@@ -6,7 +6,7 @@
  * can drive it without stubbing `getServerEnv`.
  */
 
-export type QuotaRefusalCode = "rate_limited" | "quota_exceeded";
+export type QuotaRefusalCode = "rate_limited" | "quota_exceeded" | "quota_unavailable";
 
 export interface QuotaRefusal {
   readonly code: QuotaRefusalCode;
@@ -40,6 +40,7 @@ export interface QuotaStore {
 export const QUOTA_REFUSAL_MESSAGES: Readonly<Record<QuotaRefusalCode, string>> = {
   rate_limited: "Too many runs in a minute. Try again shortly.",
   quota_exceeded: "You've used today's token budget. It resets at 00:00 UTC.",
+  quota_unavailable: "The run could not be started: the quota check failed. Try again shortly.",
 };
 
 export function quotaRefusal(code: QuotaRefusalCode): QuotaRefusal {

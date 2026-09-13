@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/dal";
 import { getServerEnv } from "@/lib/env/server";
 import { createPostgresQuotaStore } from "@/lib/quota/postgres-store";
+import type { QuotaStatus } from "@/lib/quota/types";
 import { StudioWorkspace } from "../_components/StudioWorkspace";
 
 /**
@@ -12,10 +13,18 @@ export default async function NewGamePage() {
   const profile = await requireUser();
   const env = getServerEnv();
 
-  const quota = await createPostgresQuotaStore({
-    dailyTokenBudget: env.dailyTokenBudget,
-    runBurstPerMinute: env.runBurstPerMinute,
-  }).readStatus(profile.id, profile.role === "admin");
+  // The budget bar is informational, so a failed read omits it rather than
+  // taking the whole Studio page down.
+  let quota: QuotaStatus | null;
+
+  try {
+    quota = await createPostgresQuotaStore({
+      dailyTokenBudget: env.dailyTokenBudget,
+      runBurstPerMinute: env.runBurstPerMinute,
+    }).readStatus(profile.id, profile.role === "admin");
+  } catch {
+    quota = null;
+  }
 
   return (
     <StudioWorkspace

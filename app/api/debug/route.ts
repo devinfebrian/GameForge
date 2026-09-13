@@ -198,7 +198,9 @@ export async function POST(request: Request): Promise<Response> {
     status = "failed";
     return preStreamFailure(failure.code, failure.message);
   } finally {
-    await finishGenerationRun(runId, status);
+    // Charged before the slot is released, so the next run's quota check sees
+    // this spend. Best-effort: chargeRun swallows its own write failure.
     await quota.chargeRun(profile.id, chargeable);
+    await finishGenerationRun(runId, status);
   }
 }

@@ -126,14 +126,15 @@ export async function POST(request: Request): Promise<Response> {
 
         status = outcome.status;
 
-        // A failed or aborted patch is free, matching generation: only a
-        // completed edit is charged.
-        if (outcome.status === "completed") {
-          chargeable = outcome.tokensUsed;
-        }
+        // As in /api/generate: charged for the tokens the edit actually spent,
+        // whether it completed, failed, or was aborted. A failed or aborted edit
+        // is not free, and a completed one is not charged for phantom work.
+        chargeable = outcome.tokensUsed;
       } finally {
-        await finishGenerationRun(runId, status);
+        // Charged before the slot is released, so the next run's quota check
+        // sees this spend. Best-effort: chargeRun swallows its own write failure.
         await quota.chargeRun(profile.id, chargeable);
+        await finishGenerationRun(runId, status);
       }
     },
     onUnexpectedError: (error) => {

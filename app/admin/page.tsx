@@ -100,8 +100,8 @@ export default async function AdminPage() {
           resetting at 00:00 UTC.
         </p>
         <p className="text-sm opacity-70">
-          Burst limit: {env.runBurstPerMinute} run(s) per minute per user. Neither is
-          refunded.
+          Burst limit: {env.runBurstPerMinute} run(s) per minute per user. Runs are
+          charged for the tokens they actually spend; nothing is refunded.
         </p>
         <p className="text-sm opacity-70">
           Admins are exempt from both. Set DAILY_TOKEN_BUDGET and RUN_BURST_PER_MINUTE to

@@ -124,14 +124,17 @@ export async function POST(request: Request): Promise<Response> {
 
         status = outcome.status;
 
-        // A failed or aborted run costs the user nothing: only a run that
-        // completed is charged, which is why there is no refund path at all.
-        if (outcome.status === "completed") {
-          chargeable = outcome.tokensUsed;
-        }
+        // Every terminal outcome reports what the run actually spent, and every
+        // terminal outcome is charged it: a failure or abort costs the stages
+        // that had already answered rather than the whole run, and a run that
+        // never reached the model costs nothing. Nothing is charged up front, so
+        // there is still no refund path.
+        chargeable = outcome.tokensUsed;
       } finally {
-        await finishGenerationRun(runId, status);
+        // Charged before the slot is released, so the next run's quota check
+        // sees this spend. Best-effort: chargeRun swallows its own write failure.
         await quota.chargeRun(profile.id, chargeable);
+        await finishGenerationRun(runId, status);
       }
     },
     onUnexpectedError: (error) => {

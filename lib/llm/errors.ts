@@ -15,6 +15,9 @@ export type GenerationErrorCode =
   // exhausted daily budget are different problems with different remedies.
   | "rate_limited"
   | "quota_exceeded"
+  // The quota check could not be answered at all. A service failure, not a
+  // policy refusal, so it maps to 503 rather than 429.
+  | "quota_unavailable"
   | "config_missing"
   | "model_unavailable"
   | "provider_auth_failed"

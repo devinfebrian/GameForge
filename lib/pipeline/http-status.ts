@@ -17,6 +17,7 @@ export const PRE_STREAM_STATUS: Readonly<Record<GenerationErrorCode, number>> = 
   run_in_progress: 409,
   rate_limited: 429,
   quota_exceeded: 429,
+  quota_unavailable: 503,
   config_missing: 503,
   crypto_key_missing: 503,
   crypto_decrypt_failed: 503,

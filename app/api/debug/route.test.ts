@@ -181,16 +181,16 @@ describe("POST /api/debug", () => {
       tokensUsed: USAGE_TOKENS,
     });
 
-    // Order is the guarantee: the pre-check runs before the slot is claimed, and
-    // the pointer is made safe before the model is even resolved, so a broken
-    // version is not the game's resting state meanwhile.
+    // Order is the guarantee: the pre-check runs before the slot is claimed, the
+    // pointer is made safe before the model is even resolved, and the charge
+    // lands before the slot is released so the next check sees the spend.
     expect(adminDouble.rpcCalls.map((call) => call.fn)).toEqual([
       "check_run_allowed",
       "begin_generation_run",
       "reset_game_current_to_stable",
       "persist_debug_candidate",
-      "finish_generation_run",
       "add_token_usage",
+      "finish_generation_run",
     ]);
     expect(rpcCall("begin_generation_run")?.args).toEqual({
       p_user_id: "user-1",
@@ -223,8 +223,8 @@ describe("POST /api/debug", () => {
       "check_run_allowed",
       "begin_generation_run",
       "persist_debug_candidate",
-      "finish_generation_run",
       "add_token_usage",
+      "finish_generation_run",
     ]);
   });
 
