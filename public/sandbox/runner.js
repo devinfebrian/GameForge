@@ -19,6 +19,53 @@ let heartbeatFrame = 0;
 let lastConsoleForwardAt = 0;
 let audioUnlockInstalled = false;
 
+// Generated games reach for web storage out of habit, but this frame is an
+// opaque origin with no storage: reading window.localStorage throws a
+// SecurityError that would otherwise kill the scene during create(). A
+// per-frame in-memory stand-in keeps such a game running; it simply does not
+// survive a reload. The coder prompt tells generated code to keep state in the
+// scene, so this is a safety net, not an API to depend on.
+function createStorageStandIn() {
+  const entries = new Map();
+
+  return {
+    getItem(key) {
+      const name = String(key);
+      return entries.has(name) ? entries.get(name) : null;
+    },
+    setItem(key, value) {
+      entries.set(String(key), String(value));
+    },
+    removeItem(key) {
+      entries.delete(String(key));
+    },
+    clear() {
+      entries.clear();
+    },
+    key(index) {
+      const names = Array.from(entries.keys());
+      return index >= 0 && index < names.length ? names[index] : null;
+    },
+    get length() {
+      return entries.size;
+    },
+  };
+}
+
+// An own property shadows the throwing accessor on Window.prototype, which is
+// the only way to make the name readable at all in an opaque origin.
+for (const name of ["localStorage", "sessionStorage"]) {
+  try {
+    Object.defineProperty(window, name, {
+      value: createStorageStandIn(),
+      configurable: true,
+    });
+  } catch {
+    // Some engines refuse to redefine it; the original still throws, which is
+    // why the coder prompt forbids the API outright.
+  }
+}
+
 function post(message) {
   if (parentOrigin === null || !FRAME_TO_PARENT_TYPES.includes(message.type)) {
     return;

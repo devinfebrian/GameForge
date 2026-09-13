@@ -46,6 +46,14 @@ const INSTRUCTION_MAX_LENGTH = 2000;
 // so neither can fail a game that is actually fine.
 const PROBATION_MS = 3000;
 
+// Fetching the boot payload used to be a single attempt, and its "already
+// booted" ref is set before the request resolves, so one dropped connection left
+// the studio stuck on a permanent "could not be loaded" that even Preview could
+// not clear. A few short attempts ride out a blip; a definitive answer still
+// stops immediately.
+const BOOT_ATTEMPTS = 3;
+const BOOT_RETRY_DELAY_MS = 400;
+
 // The report sent when the frame never reached SCENE_READY. There is no
 // RUNTIME_ERROR to forward in that case, only the timeout.
 const BOOT_TIMEOUT_REPORT: DebugErrorReport = {
@@ -81,8 +89,15 @@ interface RunFailure {
   readonly message: string;
 }
 
-/** Reads the `{ error: { code, message } }` envelope the routes return. */
-async function readFailure(response: Response): Promise<RunFailure> {
+/**
+ * Reads the `{ error: { code, message } }` envelope the routes return. `fallback`
+ * is what to show when the body is not that envelope, so each caller can name its
+ * own failure instead of inheriting one that belongs to another flow.
+ */
+async function readFailure(
+  response: Response,
+  fallback = "Automatic repair could not be started.",
+): Promise<RunFailure> {
   try {
     const payload: unknown = await response.json();
 
@@ -99,17 +114,14 @@ async function readFailure(response: Response): Promise<RunFailure> {
 
       return {
         code: typeof code === "string" ? code : null,
-        message:
-          typeof message === "string"
-            ? message
-            : "Automatic repair could not be started.",
+        message: typeof message === "string" ? message : fallback,
       };
     }
   } catch {
     // Fall through.
   }
 
-  return { code: null, message: "Automatic repair could not be started." };
+  return { code: null, message: fallback };
 }
 
 interface BootPayload {
@@ -267,28 +279,54 @@ export function StudioWorkspace({
     async (versionId: string) => {
       setBootError(null);
 
-      try {
-        const response = await fetch(`/api/games/${gameId}/versions/${versionId}`);
+      // Null means the request never produced a status (it threw), which is the
+      // connection case; otherwise it holds the last server status we saw.
+      let lastStatus: number | null = null;
 
-        if (!response.ok) {
-          setBootError("This version could not be loaded.");
-          return;
+      for (let attempt = 1; attempt <= BOOT_ATTEMPTS; attempt += 1) {
+        try {
+          const response = await fetch(`/api/games/${gameId}/versions/${versionId}`);
+
+          if (response.ok) {
+            const payload = (await response.json()) as BootPayload;
+
+            if (!payload.bootable) {
+              setBootError(payload.bootReason ?? "This version cannot be run.");
+              return;
+            }
+
+            // Recorded only once LOAD_CODE is about to be sent: probation and
+            // repair must never be attributed to a version that never booted.
+            runningVersionRef.current = versionId;
+            loadCode(payload.sourceCode, payload.assetManifest);
+            return;
+          }
+
+          lastStatus = response.status;
+
+          // A 4xx is the server's final answer — retrying returns it again.
+          if (response.status < 500) {
+            setBootError(
+              (await readFailure(response, "This version could not be loaded.")).message,
+            );
+            return;
+          }
+        } catch {
+          lastStatus = null;
         }
 
-        const payload = (await response.json()) as BootPayload;
-
-        if (!payload.bootable) {
-          setBootError(payload.bootReason ?? "This version cannot be run.");
-          return;
+        if (attempt < BOOT_ATTEMPTS) {
+          await new Promise((resolve) => {
+            setTimeout(resolve, BOOT_RETRY_DELAY_MS * attempt);
+          });
         }
-
-        // Recorded only once LOAD_CODE is about to be sent: probation and repair
-        // must never be attributed to a version that never actually booted.
-        runningVersionRef.current = versionId;
-        loadCode(payload.sourceCode, payload.assetManifest);
-      } catch {
-        setBootError("This version could not be loaded.");
       }
+
+      setBootError(
+        lastStatus === null
+          ? "This version could not be loaded. Check the connection and try again."
+          : `This version could not be loaded (HTTP ${lastStatus}).`,
+      );
     },
     [gameId, loadCode],
   );

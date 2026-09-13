@@ -31,7 +31,17 @@ Prefer a kind word ("enemy", "collectible", "projectile", "terrain") plus a styl
 
 Free text, but stay near what the library supports — space shooter, top-down shooter, platformer, collect-and-avoid — because those map to real sprites. If the prompt asks for something further away, keep the genre honest and lean on generic entity kinds.
 
-## Output
+## Output shape
 
-Call the submit_game_spec tool exactly once with every field filled in. Write summary in one or two sentences of plain prose; it is shown to the user as the description of their game. Do not include code, and do not narrate your reasoning.`;
+Call the submit_game_spec tool exactly once with every field filled in, matching these shapes exactly — a field with the wrong type is rejected outright:
+
+- title: one line, at most 80 characters.
+- genre: the style described above, at most 60 characters.
+- summary: one or two sentences of plain prose, at most 400 characters. It is shown to the user as their game's description.
+- mechanics: an array of 1 to 8 short sentences. Always an array, never one string.
+- controls: an array of 1 to 8 entries. Each entry is an object with exactly two fields: "action", a short label such as "Move left", and "keys", an array of 1 to 6 key labels such as ["ArrowLeft", "a"]. This is an array of objects — never a single string, and never a bare list of key names.
+- winCondition and lossCondition: one sentence each, at most 300 characters.
+- entities: an array of 1 to 12 entries, each with the fields described under Entities.
+
+Do not include code, and do not narrate your reasoning.`;
 }
