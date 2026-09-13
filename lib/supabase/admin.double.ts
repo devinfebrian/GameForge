@@ -44,6 +44,9 @@ interface QueryChain {
   select: () => QueryChain;
   update: (values: Record<string, unknown>) => QueryChain;
   eq: (column: string, value: unknown) => QueryChain;
+  is: (column: string, value: unknown) => QueryChain;
+  in: (column: string, values: ReadonlyArray<unknown>) => QueryChain;
+  order: (column: string, options?: unknown) => QueryChain;
   maybeSingle: () => Promise<AdminQueryResult>;
   then: (onFulfilled: (value: AdminQueryResult) => unknown) => Promise<unknown>;
 }
@@ -87,6 +90,17 @@ function createQueryChain(table: string): QueryChain {
     },
     eq: (column, value) => {
       filters.push({ column, value });
+
+      return chain;
+    },
+    is: (column, value) => {
+      filters.push({ column, value });
+
+      return chain;
+    },
+    order: () => chain,
+    in: (column, values) => {
+      filters.push({ column, value: values });
 
       return chain;
     },

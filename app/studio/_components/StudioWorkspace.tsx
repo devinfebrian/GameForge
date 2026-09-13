@@ -18,6 +18,8 @@ import type {
 } from "@/lib/pipeline/events";
 import { useSandboxBridge } from "@/lib/sandbox/useSandboxBridge";
 import { AgentStepper, stageSteps } from "./AgentStepper";
+import { ExportMenu } from "./ExportMenu";
+import { PublishControls } from "./PublishControls";
 import { RuntimeControls } from "./RuntimeControls";
 import { VersionTimeline } from "./VersionTimeline";
 
@@ -135,6 +137,10 @@ export interface StudioWorkspaceProps {
   readonly gameId: string | null;
   readonly title: string | null;
   readonly currentVersionId: string | null;
+  /** Whether `/play/[slug]` is currently serving this game. */
+  readonly isPublic: boolean;
+  /** Assigned on first publish, reserved afterwards. Null until then. */
+  readonly publicSlug: string | null;
   readonly versions: ReadonlyArray<VersionSummary>;
   readonly messages: ReadonlyArray<TranscriptMessage>;
   /** Today's token usage for the signed-in user, or null when it could not be read. */
@@ -178,6 +184,8 @@ export function StudioWorkspace({
   gameId,
   title,
   currentVersionId,
+  isPublic,
+  publicSlug,
   versions,
   messages,
   quota,
@@ -607,7 +615,19 @@ export function StudioWorkspace({
     <div className="flex flex-1 flex-col gap-4 p-6">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold">{title ?? "New game"}</h1>
-        <QuotaBar quota={quota} />
+        <div className="flex flex-wrap items-center gap-4">
+          <PublishControls
+            gameId={gameId}
+            initialIsPublic={isPublic}
+            initialPublicSlug={publicSlug}
+          />
+          <ExportMenu
+            gameId={gameId}
+            title={title}
+            versionId={previewVersionId ?? currentVersionId}
+          />
+          <QuotaBar quota={quota} />
+        </div>
       </div>
 
       <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
