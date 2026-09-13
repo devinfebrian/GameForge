@@ -1,6 +1,6 @@
 import type { ServerEnv } from "@/lib/env/server";
 import { createGatewayClient } from "@/lib/llm/chat-completions";
-import { loadAgentModels } from "@/lib/llm/config";
+import { loadAgentModels, loadDebugModel } from "@/lib/llm/config";
 import { GenerationError } from "@/lib/llm/errors";
 import { createFakeGatewayClient, FAKE_MODELS } from "@/lib/llm/fake-client";
 import { assertModelAvailable } from "@/lib/llm/models";
@@ -92,4 +92,65 @@ export async function resolveLlmBootstrap(
     }),
     models,
   };
+}
+
+export type DebugLlmBootstrap =
+  | { readonly ok: true; readonly client: LlmClient; readonly model: string }
+  | { readonly ok: false; readonly response: Response };
+
+/**
+ * The debug agent's single model, resolved separately from the generation
+ * stages because it is not one of them.
+ *
+ * A repair is one model call per request, so the same per-call ceilings apply:
+ * the model-list lookup is shared, and the call has the same 90s budget as a
+ * stage so a hung repair is reported rather than killed by the platform.
+ */
+export async function resolveDebugLlm(
+  env: ServerEnv,
+  signal: AbortSignal,
+): Promise<DebugLlmBootstrap> {
+  if (env.generationFake) {
+    return { ok: true, client: createFakeGatewayClient(), model: FAKE_MODELS.coder };
+  }
+
+  const { anthropicApiKey: credential, anthropicBaseUrl: baseUrl } = env;
+
+  if (credential === null || baseUrl === null) {
+    return {
+      ok: false,
+      response: preStreamFailure(
+        "config_missing",
+        "ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL must both be set to enable automatic repair.",
+      ),
+    };
+  }
+
+  try {
+    const model = await loadDebugModel();
+
+    await assertModelAvailable(baseUrl, credential, model, {
+      signal,
+      timeoutMs: MODEL_LIST_TIMEOUT_MS,
+    });
+
+    return {
+      ok: true,
+      client: createGatewayClient({ baseUrl, credential, timeoutMs: MODEL_CALL_TIMEOUT_MS }),
+      model,
+    };
+  } catch (error) {
+    if (signal.aborted) {
+      return {
+        ok: false,
+        response: preStreamFailure("aborted", "The request was cancelled."),
+      };
+    }
+
+    if (error instanceof GenerationError) {
+      return { ok: false, response: preStreamFailure(error.code, error.message) };
+    }
+
+    throw error;
+  }
 }
