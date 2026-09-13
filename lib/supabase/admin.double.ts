@@ -29,9 +29,21 @@ interface AdminRpcCall {
   readonly args: Record<string, unknown>;
 }
 
+/** An `update(...)` write, recorded so a test can assert what was stored. */
+interface AdminWriteCall {
+  readonly table: string;
+  readonly values: Record<string, unknown>;
+  /**
+   * The `eq(...)` filters applied to the write. The array is the live one the
+   * chain mutates, so it is complete by the time an awaited call resolves.
+   */
+  readonly filters: ReadonlyArray<{ readonly column: string; readonly value: unknown }>;
+}
+
 interface QueryChain {
   select: () => QueryChain;
-  eq: () => QueryChain;
+  update: (values: Record<string, unknown>) => QueryChain;
+  eq: (column: string, value: unknown) => QueryChain;
   maybeSingle: () => Promise<AdminQueryResult>;
   then: (onFulfilled: (value: AdminQueryResult) => unknown) => Promise<unknown>;
 }
@@ -45,11 +57,13 @@ export const adminDouble = {
   rpcQueue: [] as AdminRpcResponse[],
   /** Consumed FIFO, one per terminal query; empty means a null row. */
   queryQueue: [] as AdminQueryResult[],
+  writeCalls: [] as AdminWriteCall[],
 
   reset(): void {
     this.rpcCalls = [];
     this.rpcQueue = [];
     this.queryQueue = [];
+    this.writeCalls = [];
   },
 
   shiftQuery(): AdminQueryResult {
@@ -61,19 +75,34 @@ export const adminDouble = {
   },
 };
 
-export function createAdminClientDouble(): {
-  from: () => QueryChain;
-  rpc: (fn: string, args: Record<string, unknown>) => Promise<AdminRpcResponse>;
-} {
+function createQueryChain(table: string): QueryChain {
+  const filters: Array<{ readonly column: string; readonly value: unknown }> = [];
+
   const chain: QueryChain = {
     select: () => chain,
-    eq: () => chain,
+    update: (values) => {
+      adminDouble.writeCalls.push({ table, values, filters });
+
+      return chain;
+    },
+    eq: (column, value) => {
+      filters.push({ column, value });
+
+      return chain;
+    },
     maybeSingle: async () => adminDouble.shiftQuery(),
     then: (onFulfilled) => Promise.resolve(adminDouble.shiftQuery()).then(onFulfilled),
   };
 
+  return chain;
+}
+
+export function createAdminClientDouble(): {
+  from: (table: string) => QueryChain;
+  rpc: (fn: string, args: Record<string, unknown>) => Promise<AdminRpcResponse>;
+} {
   return {
-    from: () => chain,
+    from: (table) => createQueryChain(table),
     rpc: async (fn, args) => {
       adminDouble.rpcCalls.push({ fn, args });
 

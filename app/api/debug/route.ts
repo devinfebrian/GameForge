@@ -17,6 +17,7 @@ import {
   type RunStatus,
 } from "@/lib/games/run-guard";
 import { GenerationError } from "@/lib/llm/errors";
+import { createPostgresQuotaStore } from "@/lib/quota/postgres-store";
 import { runDebugAttempt } from "@/lib/pipeline/debug";
 import { preStreamFailure } from "@/lib/pipeline/http-status";
 import { resolveDebugLlm } from "@/lib/pipeline/llm-bootstrap";
@@ -86,6 +87,22 @@ export async function POST(request: Request): Promise<Response> {
     return preStreamFailure("game_not_found", "No repairable version for this game.");
   }
 
+  const env = getServerEnv();
+
+  // Repairs are charged in Phase 6, so the same burst window and daily budget
+  // gate them. Checked before the run slot is claimed: a caller who is refused
+  // never takes the slot and never reaches the model.
+  const quota = createPostgresQuotaStore({
+    dailyTokenBudget: env.dailyTokenBudget,
+    runBurstPerMinute: env.runBurstPerMinute,
+  });
+
+  const refusal = await quota.checkRunAllowed(profile.id, profile.role === "admin");
+
+  if (refusal !== null) {
+    return preStreamFailure(refusal.code, refusal.message);
+  }
+
   // One run slot per user, shared with generate and patch, so a repair cannot
   // race a hot-patch for games.current_version_id.
   const runId = await beginGenerationRun(profile.id, gameId);
@@ -98,6 +115,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   let status: RunStatus = "failed";
+  let chargeable = 0;
 
   try {
     // Before anything that can fail, but only when the failing version is the one
@@ -108,7 +126,7 @@ export async function POST(request: Request): Promise<Response> {
       await resetCurrentToStable(gameId, profile.id);
     }
 
-    const bootstrap = await resolveDebugLlm(getServerEnv(), request.signal);
+    const bootstrap = await resolveDebugLlm(env, request.signal);
 
     if (!bootstrap.ok) {
       return bootstrap.response;
@@ -143,12 +161,18 @@ export async function POST(request: Request): Promise<Response> {
     switch (outcome.status) {
       case "candidate":
         status = "completed";
+        // A model call happened and the fix was persisted: charged.
+        chargeable = outcome.tokensUsed;
         return Response.json(outcome);
       case "gate_failed":
         status = "failed";
+        // Still billable: the model answered, the answer just failed the boot
+        // gate. A tombstone is written, so this attempt is not free either.
+        chargeable = outcome.tokensUsed;
         return Response.json(outcome);
       case "exhausted":
         status = "completed";
+        // No model call was made, so nothing is charged.
         return Response.json(outcome);
       case "aborted":
         status = "aborted";
@@ -174,6 +198,9 @@ export async function POST(request: Request): Promise<Response> {
     status = "failed";
     return preStreamFailure(failure.code, failure.message);
   } finally {
+    // Charged before the slot is released, so the next run's quota check sees
+    // this spend. Best-effort: chargeRun swallows its own write failure.
+    await quota.chargeRun(profile.id, chargeable);
     await finishGenerationRun(runId, status);
   }
 }

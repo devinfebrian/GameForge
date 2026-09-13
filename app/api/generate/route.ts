@@ -6,6 +6,7 @@ import { findOwnedGame } from "@/lib/games/repository";
 import { beginGenerationRun, finishGenerationRun, type RunStatus } from "@/lib/games/run-guard";
 import { getPublicEnv } from "@/lib/env/public";
 import { getServerEnv } from "@/lib/env/server";
+import { createPostgresQuotaStore } from "@/lib/quota/postgres-store";
 import { runGeneration } from "@/lib/pipeline/generate";
 import { preStreamFailure } from "@/lib/pipeline/http-status";
 import { resolveLlmBootstrap } from "@/lib/pipeline/llm-bootstrap";
@@ -67,7 +68,22 @@ export async function POST(request: Request): Promise<Response> {
 
   // Reading env is central; requiring it is not. Missing gateway config takes
   // generation offline and nothing else.
-  const bootstrap = await resolveLlmBootstrap(getServerEnv(), request.signal);
+  const env = getServerEnv();
+
+  // Refused before the model is resolved and before the run slot is claimed, so
+  // an over-budget or rate-limited caller never reaches a billable call.
+  const quota = createPostgresQuotaStore({
+    dailyTokenBudget: env.dailyTokenBudget,
+    runBurstPerMinute: env.runBurstPerMinute,
+  });
+
+  const refusal = await quota.checkRunAllowed(profile.id, profile.role === "admin");
+
+  if (refusal !== null) {
+    return preStreamFailure(refusal.code, refusal.message);
+  }
+
+  const bootstrap = await resolveLlmBootstrap(env, request.signal);
 
   if (!bootstrap.ok) {
     return bootstrap.response;
@@ -89,6 +105,7 @@ export async function POST(request: Request): Promise<Response> {
   return createSseResponse({
     run: async (emit) => {
       let status: RunStatus = "failed";
+      let chargeable = 0;
 
       try {
         const outcome = await runGeneration(
@@ -106,7 +123,17 @@ export async function POST(request: Request): Promise<Response> {
         );
 
         status = outcome.status;
+
+        // Every terminal outcome reports what the run actually spent, and every
+        // terminal outcome is charged it: a failure or abort costs the stages
+        // that had already answered rather than the whole run, and a run that
+        // never reached the model costs nothing. Nothing is charged up front, so
+        // there is still no refund path.
+        chargeable = outcome.tokensUsed;
       } finally {
+        // Charged before the slot is released, so the next run's quota check
+        // sees this spend. Best-effort: chargeRun swallows its own write failure.
+        await quota.chargeRun(profile.id, chargeable);
         await finishGenerationRun(runId, status);
       }
     },

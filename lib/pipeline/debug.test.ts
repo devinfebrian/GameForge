@@ -115,6 +115,7 @@ describe("runDebugAttempt — candidate", () => {
       versionNumber: 4,
       attempt: 1,
       remaining: DEBUG_ATTEMPT_LIMIT - 1,
+      tokensUsed: USAGE.inputTokens + USAGE.outputTokens,
     });
 
     expect(persisted).toHaveLength(1);

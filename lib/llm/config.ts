@@ -7,6 +7,7 @@ import {
   STAGE_AGENT_TYPE,
   type AgentType,
 } from "@/lib/agents/types";
+import { decryptSecret, parseEncryptionKey } from "@/lib/crypto/secrets";
 import { GenerationError } from "@/lib/llm/errors";
 import type { AgentModels } from "@/lib/llm/types";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -116,4 +117,106 @@ export async function loadDebugModel(): Promise<string> {
   }
 
   return row.model_name;
+}
+
+const gatewayKeyRowSchema = z.object({
+  agent_type: z.enum(AGENT_TYPES),
+  api_key_override_encrypted: z.string().nullable(),
+});
+
+/**
+ * Whether a gateway API key override is stored, and whether the rows agree.
+ *
+ * The column is per-row, but there is one gateway and therefore one credential,
+ * so a single override is written to every active row. `conflict` is what a
+ * partial or hand-edited write looks like: it is reported rather than resolved,
+ * because picking a winner silently is how a run ends up authenticated with a
+ * key nobody chose.
+ */
+export type GatewayKeyState =
+  | { readonly kind: "none" }
+  | { readonly kind: "set"; readonly credential: string }
+  | { readonly kind: "conflict"; readonly agents: ReadonlyArray<AgentType> };
+
+/**
+ * Reads the stored override. The encryption key is passed in rather than read
+ * from the environment so this stays testable without module mocking; the
+ * callers own the decision of whether a key exists.
+ */
+export async function readGatewayKeyState(
+  encryptionKey: string | null,
+): Promise<GatewayKeyState> {
+  const { data, error } = await createAdminClient()
+    .from("llm_configurations")
+    .select("agent_type, api_key_override_encrypted")
+    .eq("is_active", true);
+
+  if (error !== null) {
+    throw new GenerationError(
+      "config_missing",
+      "Could not read the gateway API key override.",
+      { cause: error.message },
+    );
+  }
+
+  const stored: Array<{ readonly agentType: AgentType; readonly encrypted: string }> = [];
+
+  for (const raw of data ?? []) {
+    const row = gatewayKeyRowSchema.parse(raw);
+
+    if (row.api_key_override_encrypted !== null) {
+      stored.push({
+        agentType: row.agent_type,
+        encrypted: row.api_key_override_encrypted,
+      });
+    }
+  }
+
+  if (stored.length === 0) {
+    return { kind: "none" };
+  }
+
+  const key = parseEncryptionKey(encryptionKey);
+  const decrypted = stored.map((entry) => ({
+    agentType: entry.agentType,
+    credential: decryptSecret(entry.encrypted, key),
+  }));
+
+  const first = decrypted[0];
+
+  if (first === undefined) {
+    return { kind: "none" };
+  }
+
+  const agree = decrypted.every((entry) => entry.credential === first.credential);
+
+  if (!agree) {
+    return { kind: "conflict", agents: decrypted.map((entry) => entry.agentType) };
+  }
+
+  return { kind: "set", credential: first.credential };
+}
+
+/**
+ * The gateway credential a run should use: the stored override when there is
+ * one, otherwise null so the caller can fall back to `ANTHROPIC_API_KEY`.
+ *
+ * A disagreement is fatal rather than resolved, and a key that cannot be
+ * decrypted throws its own code from `parseEncryptionKey`. Neither falls back to
+ * the environment credential: a misconfiguration must not look like a working
+ * override.
+ */
+export async function loadGatewayCredential(
+  encryptionKey: string | null,
+): Promise<string | null> {
+  const state = await readGatewayKeyState(encryptionKey);
+
+  if (state.kind === "conflict") {
+    throw new GenerationError(
+      "config_missing",
+      "The LLM configurations disagree on the gateway API key override. Every active row must carry the same key, or none.",
+    );
+  }
+
+  return state.kind === "set" ? state.credential : null;
 }

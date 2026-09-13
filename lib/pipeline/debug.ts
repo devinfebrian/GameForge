@@ -42,6 +42,11 @@ export interface DebugDependencies {
   readonly now: () => number;
 }
 
+/**
+ * `tokensUsed` is carried on the two outcomes that follow a billable model call,
+ * because Phase 6 charges repair attempts. `exhausted` and `aborted` report
+ * nothing: the first never reached the model, the second has no usage in hand.
+ */
 export type DebugOutcome =
   | {
       readonly status: "candidate";
@@ -49,12 +54,14 @@ export type DebugOutcome =
       readonly versionNumber: number;
       readonly attempt: number;
       readonly remaining: number;
+      readonly tokensUsed: number;
     }
   | {
       readonly status: "gate_failed";
       readonly attempt: number;
       readonly remaining: number;
       readonly reason: string | null;
+      readonly tokensUsed: number;
     }
   | { readonly status: "exhausted"; readonly attempt: number }
   | { readonly status: "failed"; readonly code: GenerationErrorCode; readonly message: string }
@@ -122,6 +129,7 @@ export async function runDebugAttempt(
         attempt,
         remaining: DEBUG_ATTEMPT_LIMIT - attempt,
         reason: inspection.reason,
+        tokensUsed,
       };
     }
 
@@ -140,6 +148,7 @@ export async function runDebugAttempt(
       versionNumber: persisted.versionNumber,
       attempt,
       remaining: DEBUG_ATTEMPT_LIMIT - attempt,
+      tokensUsed,
     };
   } catch (error) {
     if (deps.signal.aborted) {

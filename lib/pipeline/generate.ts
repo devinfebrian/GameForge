@@ -42,6 +42,7 @@ export type GenerationOutcome =
       readonly gameId: string;
       readonly versionId: string;
       readonly versionNumber: number;
+      readonly tokensUsed: number;
     }
   | {
       readonly status: "failed";
@@ -49,8 +50,9 @@ export type GenerationOutcome =
       readonly message: string;
       readonly stage: GenerationStage | null;
       readonly versionId: string | null;
+      readonly tokensUsed: number;
     }
-  | { readonly status: "aborted" };
+  | { readonly status: "aborted"; readonly tokensUsed: number };
 
 interface StageSuccess<T> {
   readonly ok: true;
@@ -126,6 +128,10 @@ async function executeGeneration(
 
   const elapsed = (): number => Math.max(0, Math.round(deps.now() - startedAt));
 
+  // Reported on every terminal outcome so the route can charge without
+  // re-deriving the run's billable total.
+  const totalTokens = (): number => usage.inputTokens + usage.outputTokens;
+
   const cumulative = (): UsageData => ({
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
@@ -175,6 +181,7 @@ async function executeGeneration(
       message: failure.message,
       stage: failure.stage,
       versionId: null,
+      tokensUsed: totalTokens(),
     } as const;
   }
 
@@ -198,7 +205,7 @@ async function executeGeneration(
         errorLog: `${failure.code}: ${failure.message}`,
         promoteCurrent: false,
         modelUsed: deps.models.coder,
-        tokensUsed: usage.inputTokens + usage.outputTokens,
+        tokensUsed: totalTokens(),
         executionTimeMs: elapsed(),
         assistantMessage: spec.summary,
       });
@@ -209,6 +216,7 @@ async function executeGeneration(
         message: failure.message,
         stage: failure.stage,
         versionId: persisted.versionId,
+        tokensUsed: totalTokens(),
       };
     } catch (persistError) {
       // Losing the snapshot is a second, separate failure: report the original
@@ -224,6 +232,7 @@ async function executeGeneration(
         message: `${failure.message} Recording the failure also failed: ${reason}`,
         stage,
         versionId: null,
+        tokensUsed: totalTokens(),
       };
     }
   }
@@ -245,7 +254,7 @@ async function executeGeneration(
 
   if (!specResult.ok) {
     if (isAborting(specResult.error)) {
-      return { status: "aborted" };
+      return { status: "aborted", tokensUsed: totalTokens() };
     }
 
     return failWithoutPersist(specResult.error, "spec", "spec_failed");
@@ -271,7 +280,7 @@ async function executeGeneration(
   if (mapResult.ok) {
     mapping = mapResult.value;
   } else if (isAborting(mapResult.error)) {
-    return { status: "aborted" };
+    return { status: "aborted", tokensUsed: totalTokens() };
   } else {
     const warning = toGenerationError(mapResult.error, "asset_mapper", "asset_mapper_failed");
 
@@ -307,7 +316,7 @@ async function executeGeneration(
 
   if (!coderResult.ok) {
     if (isAborting(coderResult.error)) {
-      return { status: "aborted" };
+      return { status: "aborted", tokensUsed: totalTokens() };
     }
 
     return failWithVersion(coderResult.error, "coder", "coder_failed", spec, manifest);
@@ -328,7 +337,7 @@ async function executeGeneration(
       // the Studio should be showing.
       promoteCurrent: true,
       modelUsed: deps.models.coder,
-      tokensUsed: usage.inputTokens + usage.outputTokens,
+      tokensUsed: totalTokens(),
       executionTimeMs: elapsed(),
       assistantMessage: spec.summary,
     });
@@ -338,10 +347,11 @@ async function executeGeneration(
       gameId: persisted.gameId,
       versionId: persisted.versionId,
       versionNumber: persisted.versionNumber,
+      tokensUsed: totalTokens(),
     };
   } catch (error) {
     if (isAborting(error)) {
-      return { status: "aborted" };
+      return { status: "aborted", tokensUsed: totalTokens() };
     }
 
     return failWithoutPersist(error, "coder", "internal");

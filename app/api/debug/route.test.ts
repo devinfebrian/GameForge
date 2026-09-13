@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { createDalDouble, dalDouble, type DalDoubleProfile } from "@/lib/dal.double";
+import { serverEnvDouble } from "@/lib/env/server.double";
 import type { LlmClient, TextResult } from "@/lib/llm/types";
 import { adminDouble, createAdminClientDouble } from "@/lib/supabase/admin.double";
 
@@ -7,11 +9,11 @@ import { adminDouble, createAdminClientDouble } from "@/lib/supabase/admin.doubl
  *
  * The repository and run guard are left real and driven through the shared
  * service-role double, so the orchestration the unit tests cannot see is
- * asserted here: ownership lookup, the run slot, reset-before-the-model, the
- * boot-gate tombstone, the ceiling, and the status left on the run row. The
- * stability route lives here too because both would mock `@/lib/dal`; Bun binds
- * a mocked path once per process, so splitting them would make the suite
- * order-dependent.
+ * asserted here: ownership lookup, the quota pre-check, the run slot,
+ * reset-before-the-model, the boot-gate tombstone, the ceiling, the charge, and
+ * the status left on the run row. The stability route lives here too because both
+ * would mock `@/lib/dal`; Bun binds a mocked path once per process, so splitting
+ * them would make the suite order-dependent.
  */
 const GAME_ID = "11111111-1111-4111-8111-111111111111";
 const VERSION_ID = "22222222-2222-4222-8222-222222222222";
@@ -43,9 +45,25 @@ const BODY = {
   error: { message: "boom", stack: "at update", line: 12, column: 3, phase: "update" },
 };
 
-// Read by the stubs at call time, so the route sees whatever the test set.
+/** The agent's usage, and therefore exactly what an attempt is charged. */
+const USAGE_TOKENS = 12;
+
+const USER: DalDoubleProfile = {
+  id: "user-1",
+  role: "user",
+  email: "user@example.com",
+  avatarUrl: null,
+};
+
+const ADMIN: DalDoubleProfile = {
+  id: "admin-1",
+  role: "admin",
+  email: "admin@example.com",
+  avatarUrl: null,
+};
+
+// Read by the stub at call time, so the route sees whatever the test set.
 const session = {
-  profile: { id: "user-1" } as { readonly id: string } | null,
   generatedCode: VALID_SCENE,
 };
 
@@ -64,12 +82,10 @@ mock.module("@/lib/supabase/admin", () => ({
   createAdminClient: createAdminClientDouble,
 }));
 
-mock.module("@/lib/dal", () => ({
-  getCurrentProfile: async () => session.profile,
-}));
+mock.module("@/lib/dal", () => createDalDouble());
 
 mock.module("@/lib/env/server", () => ({
-  getServerEnv: () => ({}),
+  getServerEnv: () => serverEnvDouble.value,
 }));
 
 mock.module("@/lib/pipeline/llm-bootstrap", () => ({
@@ -99,8 +115,26 @@ function versionRow() {
 }
 
 /** The three reads a repair performs: owner, base version, attempt count. */
-function queueDebugReads(currentVersionId: string, count: number): void {
-  adminDouble.queryQueue = [gameRow(currentVersionId), versionRow(), { count, error: null }];
+function queueDebugReads(
+  currentVersionId: string,
+  count: number,
+  userId = "user-1",
+): void {
+  adminDouble.queryQueue = [
+    gameRow(currentVersionId, userId),
+    versionRow(),
+    { count, error: null },
+  ];
+}
+
+/** The RPCs a repair that reaches the model performs, in order. */
+function queueRepairRun(): void {
+  adminDouble.rpcQueue = [
+    { data: null, error: null }, // check_run_allowed: allowed
+    { data: "run-1", error: null }, // begin_generation_run
+    { data: "stable-1", error: null }, // reset_game_current_to_stable
+    { data: { result_version_id: "cand-1", result_version_number: 4 }, error: null },
+  ];
 }
 
 function post(body: unknown): Promise<Response> {
@@ -125,18 +159,15 @@ function rpcCall(fn: string) {
 
 beforeEach(() => {
   adminDouble.reset();
-  session.profile = { id: "user-1" };
+  serverEnvDouble.reset();
+  dalDouble.reset(USER);
   session.generatedCode = VALID_SCENE;
 });
 
 describe("POST /api/debug", () => {
-  test("writes one candidate, resets first, and completes the run", async () => {
+  test("writes one candidate, resets first, charges, and completes the run", async () => {
     queueDebugReads(VERSION_ID, 0);
-    adminDouble.rpcQueue = [
-      { data: "run-1", error: null },
-      { data: "stable-1", error: null },
-      { data: { result_version_id: "cand-1", result_version_number: 4 }, error: null },
-    ];
+    queueRepairRun();
 
     const response = await post(BODY);
 
@@ -147,14 +178,18 @@ describe("POST /api/debug", () => {
       versionNumber: 4,
       attempt: 1,
       remaining: 2,
+      tokensUsed: USAGE_TOKENS,
     });
 
-    // Order is the guarantee: the pointer is made safe before the model is even
-    // resolved, so a broken version is not the game's resting state meanwhile.
+    // Order is the guarantee: the pre-check runs before the slot is claimed, the
+    // pointer is made safe before the model is even resolved, and the charge
+    // lands before the slot is released so the next check sees the spend.
     expect(adminDouble.rpcCalls.map((call) => call.fn)).toEqual([
+      "check_run_allowed",
       "begin_generation_run",
       "reset_game_current_to_stable",
       "persist_debug_candidate",
+      "add_token_usage",
       "finish_generation_run",
     ]);
     expect(rpcCall("begin_generation_run")?.args).toEqual({
@@ -164,15 +199,20 @@ describe("POST /api/debug", () => {
     expect(rpcCall("persist_debug_candidate")?.args).toMatchObject({
       p_source_code: VALID_SCENE,
       p_error_log: null,
-      p_tokens_used: 12,
+      p_tokens_used: USAGE_TOKENS,
     });
     expect(rpcCall("finish_generation_run")?.args).toMatchObject({ p_status: "completed" });
+    expect(rpcCall("add_token_usage")?.args).toEqual({
+      p_user_id: "user-1",
+      p_tokens: USAGE_TOKENS,
+    });
   });
 
   // Repairing an older snapshot must not drag current_version_id off a newer one.
   test("skips the reset when the failing version is not current", async () => {
     queueDebugReads(OTHER_VERSION_ID, 0);
     adminDouble.rpcQueue = [
+      { data: null, error: null },
       { data: "run-1", error: null },
       { data: { result_version_id: "cand-1", result_version_number: 4 }, error: null },
     ];
@@ -180,8 +220,10 @@ describe("POST /api/debug", () => {
     await post(BODY);
 
     expect(adminDouble.rpcCalls.map((call) => call.fn)).toEqual([
+      "check_run_allowed",
       "begin_generation_run",
       "persist_debug_candidate",
+      "add_token_usage",
       "finish_generation_run",
     ]);
   });
@@ -189,24 +231,32 @@ describe("POST /api/debug", () => {
   test("records a source-less tombstone when the fix fails the boot gate", async () => {
     session.generatedCode = "";
     queueDebugReads(VERSION_ID, 0);
-    adminDouble.rpcQueue = [
-      { data: "run-1", error: null },
-      { data: "stable-1", error: null },
-      { data: { result_version_id: "cand-1", result_version_number: 4 }, error: null },
-    ];
+    queueRepairRun();
 
     const response = await post(BODY);
 
-    expect(await response.json()).toMatchObject({ status: "gate_failed", attempt: 1, remaining: 2 });
+    expect(await response.json()).toMatchObject({
+      status: "gate_failed",
+      attempt: 1,
+      remaining: 2,
+      tokensUsed: USAGE_TOKENS,
+    });
     const persist = rpcCall("persist_debug_candidate");
     expect(persist?.args.p_source_code).toBeNull();
     expect(String(persist?.args.p_error_log)).toContain("debug_gate_failed");
     expect(rpcCall("finish_generation_run")?.args).toMatchObject({ p_status: "failed" });
+    // The model answered, so the attempt is billable even though the code was
+    // unusable and only a tombstone was written.
+    expect(rpcCall("add_token_usage")?.args).toEqual({
+      p_user_id: "user-1",
+      p_tokens: USAGE_TOKENS,
+    });
   });
 
-  test("refuses past the ceiling without calling the model or writing", async () => {
+  test("refuses past the ceiling without calling the model, writing, or charging", async () => {
     queueDebugReads(VERSION_ID, 3);
     adminDouble.rpcQueue = [
+      { data: null, error: null },
       { data: "run-1", error: null },
       { data: "stable-1", error: null },
     ];
@@ -216,10 +266,12 @@ describe("POST /api/debug", () => {
     expect(await response.json()).toEqual({ status: "exhausted", attempt: 3 });
     expect(rpcCall("persist_debug_candidate")).toBeUndefined();
     expect(rpcCall("finish_generation_run")?.args).toMatchObject({ p_status: "completed" });
+    // No model call happened, so nothing is charged.
+    expect(rpcCall("add_token_usage")).toBeUndefined();
   });
 
   test("rejects an unauthenticated caller before any lookup", async () => {
-    session.profile = null;
+    dalDouble.reset(null);
 
     const response = await post(BODY);
 
@@ -250,13 +302,75 @@ describe("POST /api/debug", () => {
 
   test("answers 409 when the user's run slot is taken, without writing", async () => {
     queueDebugReads(VERSION_ID, 0);
-    adminDouble.rpcQueue = [{ data: null, error: null }];
+    adminDouble.rpcQueue = [
+      { data: null, error: null }, // check_run_allowed: allowed
+      { data: null, error: null }, // begin_generation_run: slot taken
+    ];
 
     const response = await post(BODY);
 
     expect(response.status).toBe(409);
     expect(rpcCall("reset_game_current_to_stable")).toBeUndefined();
     expect(rpcCall("persist_debug_candidate")).toBeUndefined();
+  });
+});
+
+describe("POST /api/debug — quota", () => {
+  // Repairs are charged in Phase 6, so they are gated by the same limits. A
+  // refusal must not consume the run slot.
+  test("answers 429 rate_limited before taking the run slot", async () => {
+    adminDouble.queryQueue = [gameRow(VERSION_ID), versionRow()];
+    adminDouble.rpcQueue = [{ data: "rate_limited", error: null }];
+
+    const response = await post(BODY);
+
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "rate_limited",
+        message: "Too many runs in a minute. Try again shortly.",
+      },
+    });
+    expect(rpcCall("begin_generation_run")).toBeUndefined();
+    expect(rpcCall("add_token_usage")).toBeUndefined();
+  });
+
+  test("answers 429 quota_exceeded with its own code and message", async () => {
+    adminDouble.queryQueue = [gameRow(VERSION_ID), versionRow()];
+    adminDouble.rpcQueue = [{ data: "quota_exceeded", error: null }];
+
+    const response = await post(BODY);
+
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "quota_exceeded",
+        message: "You've used today's token budget. It resets at 00:00 UTC.",
+      },
+    });
+    expect(rpcCall("begin_generation_run")).toBeUndefined();
+  });
+
+  test("an admin skips the check entirely but is still charged", async () => {
+    dalDouble.reset(ADMIN);
+    queueDebugReads(VERSION_ID, 0, "admin-1");
+    // No check_run_allowed entry: the bypass is the absence of the query, so the
+    // first call the double sees must be the run claim.
+    adminDouble.rpcQueue = [
+      { data: "run-1", error: null },
+      { data: "stable-1", error: null },
+      { data: { result_version_id: "cand-1", result_version_number: 4 }, error: null },
+    ];
+
+    const response = await post(BODY);
+
+    expect(response.status).toBe(200);
+    // Bypass is the absence of the query, not a passed flag.
+    expect(rpcCall("check_run_allowed")).toBeUndefined();
+    expect(rpcCall("add_token_usage")?.args).toEqual({
+      p_user_id: "admin-1",
+      p_tokens: USAGE_TOKENS,
+    });
   });
 });
 
@@ -284,7 +398,7 @@ describe("PATCH /stability", () => {
   });
 
   test("rejects an unauthenticated caller without writing", async () => {
-    session.profile = null;
+    dalDouble.reset(null);
 
     const response = await patch(GAME_ID, VERSION_ID);
 

@@ -6,6 +6,7 @@ import { SandboxFrame } from "@/app/_components/SandboxFrame";
 import type { DebugErrorReport } from "@/lib/agents/debug/prompt";
 import type { GenerationStage } from "@/lib/agents/types";
 import type { TranscriptMessage, VersionSummary } from "@/lib/games/repository";
+import type { QuotaStatus } from "@/lib/quota/types";
 import { streamRun } from "@/lib/pipeline/client";
 import type {
   ErrorData,
@@ -73,7 +74,13 @@ function useDocumentHidden(): boolean {
   return hidden;
 }
 
-async function readFailureMessage(response: Response): Promise<string> {
+interface RunFailure {
+  readonly code: string | null;
+  readonly message: string;
+}
+
+/** Reads the `{ error: { code, message } }` envelope the routes return. */
+async function readFailure(response: Response): Promise<RunFailure> {
   try {
     const payload: unknown = await response.json();
 
@@ -84,17 +91,23 @@ async function readFailureMessage(response: Response): Promise<string> {
       typeof (payload as { error: unknown }).error === "object" &&
       (payload as { error: unknown }).error !== null
     ) {
-      const message = (payload as { error: { message?: unknown } }).error.message;
+      const { code, message } = (
+        payload as { error: { code?: unknown; message?: unknown } }
+      ).error;
 
-      if (typeof message === "string") {
-        return message;
-      }
+      return {
+        code: typeof code === "string" ? code : null,
+        message:
+          typeof message === "string"
+            ? message
+            : "Automatic repair could not be started.",
+      };
     }
   } catch {
     // Fall through.
   }
 
-  return "Automatic repair could not be started.";
+  return { code: null, message: "Automatic repair could not be started." };
 }
 
 interface BootPayload {
@@ -124,6 +137,41 @@ export interface StudioWorkspaceProps {
   readonly currentVersionId: string | null;
   readonly versions: ReadonlyArray<VersionSummary>;
   readonly messages: ReadonlyArray<TranscriptMessage>;
+  /** Today's token usage for the signed-in user, or null when it could not be read. */
+  readonly quota: QuotaStatus | null;
+}
+
+/**
+ * The signed-in user's share of today's token budget. An admin has no ceiling,
+ * so there is no bar to draw; the exact counts live in the tooltip rather than
+ * the label so the header stays quiet. A null quota means the read failed, so
+ * the bar is omitted rather than showing a misleading figure.
+ */
+function QuotaBar({ quota }: { readonly quota: QuotaStatus | null }) {
+  if (quota === null) {
+    return null;
+  }
+
+  if (quota.dailyLimit === null) {
+    return <span className="text-xs opacity-70">Unlimited</span>;
+  }
+
+  const percent =
+    quota.dailyLimit <= 0
+      ? 100
+      : Math.min(100, Math.round((quota.usedTokens / quota.dailyLimit) * 100));
+
+  return (
+    <div
+      className="flex items-center gap-2"
+      title={`${quota.usedTokens.toLocaleString("en-US")} of ${quota.dailyLimit.toLocaleString("en-US")} tokens used today`}
+    >
+      <div className="h-2 w-24 overflow-hidden rounded bg-black/10 dark:bg-white/15">
+        <div className="h-full bg-foreground" style={{ width: `${percent}%` }} />
+      </div>
+      <span className="text-xs opacity-70">{percent}% of today&apos;s tokens</span>
+    </div>
+  );
 }
 
 export function StudioWorkspace({
@@ -132,6 +180,7 @@ export function StudioWorkspace({
   currentVersionId,
   versions,
   messages,
+  quota,
 }: StudioWorkspaceProps) {
   const router = useRouter();
   const bridge = useSandboxBridge();
@@ -305,7 +354,18 @@ export function StudioWorkspace({
           });
 
           if (!response.ok) {
-            setRepairNotice(await readFailureMessage(response));
+            const failure = await readFailure(response);
+
+            // A refusal is not a repair failure, so the quota codes get their own
+            // wording instead of the generic "could not be started".
+            setRepairNotice(
+              failure.code === "quota_exceeded"
+                ? "Daily token budget reached; automatic repair resumes tomorrow."
+                : failure.code === "rate_limited"
+                  ? "Too many runs in a minute. Try again shortly."
+                  : failure.message,
+            );
+            router.refresh();
             return;
           }
 
@@ -315,6 +375,8 @@ export function StudioWorkspace({
             setRepairNotice(`Applying an automatic repair (attempt ${data.attempt} of 3).`);
             setEvaluateVersionId(data.candidateVersionId);
             setBootVersionId(data.candidateVersionId);
+            // The attempt was billed, so the budget bar is re-read from the server.
+            router.refresh();
             return;
           }
 
@@ -345,6 +407,7 @@ export function StudioWorkspace({
         router.refresh();
       } catch {
         setRepairNotice("Automatic repair could not be started.");
+        router.refresh();
       } finally {
         repairBusyRef.current = false;
       }
@@ -544,6 +607,7 @@ export function StudioWorkspace({
     <div className="flex flex-1 flex-col gap-4 p-6">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold">{title ?? "New game"}</h1>
+        <QuotaBar quota={quota} />
       </div>
 
       <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">

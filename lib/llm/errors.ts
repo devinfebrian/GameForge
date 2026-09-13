@@ -11,6 +11,13 @@ export type GenerationErrorCode =
   | "unauthorized"
   | "game_not_found"
   | "run_in_progress"
+  // Refusals from the quota pre-check. Distinct because a burst refusal and an
+  // exhausted daily budget are different problems with different remedies.
+  | "rate_limited"
+  | "quota_exceeded"
+  // The quota check could not be answered at all. A service failure, not a
+  // policy refusal, so it maps to 503 rather than 429.
+  | "quota_unavailable"
   | "config_missing"
   | "model_unavailable"
   | "provider_auth_failed"
@@ -19,6 +26,10 @@ export type GenerationErrorCode =
   | "spec_failed"
   | "asset_mapper_failed"
   | "coder_failed"
+  // Stored-secret failures. Never a fallback trigger: a key that cannot be
+  // decrypted is a misconfiguration, not something to route around.
+  | "crypto_key_missing"
+  | "crypto_decrypt_failed"
   | "aborted"
   | "internal";
 

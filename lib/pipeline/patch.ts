@@ -118,6 +118,10 @@ async function executePatch(
 
   const elapsed = (): number => Math.max(0, Math.round(deps.now() - startedAt));
 
+  // Reported on every terminal outcome so the route can charge without
+  // re-deriving the run's billable total.
+  const totalTokens = (): number => usage.inputTokens + usage.outputTokens;
+
   const cumulative = (): UsageData => ({
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
@@ -175,7 +179,7 @@ async function executePatch(
 
     manifest = mergeManifests(base.manifest, mapped);
   } else if (isAborting(mapResult.error)) {
-    return { status: "aborted" };
+    return { status: "aborted", tokensUsed: totalTokens() };
   } else {
     const warning = toGenerationError(mapResult.error, "asset_mapper", "asset_mapper_failed");
 
@@ -207,7 +211,7 @@ async function executePatch(
         // replace a version that still plays.
         promoteCurrent: false,
         modelUsed: deps.models.coder,
-        tokensUsed: usage.inputTokens + usage.outputTokens,
+        tokensUsed: totalTokens(),
         executionTimeMs: elapsed(),
         assistantMessage: `Patch failed: ${failure.message}`,
       });
@@ -218,6 +222,7 @@ async function executePatch(
         message: failure.message,
         stage: failure.stage,
         versionId: persisted.versionId,
+        tokensUsed: totalTokens(),
       };
     } catch (persistError) {
       const reason =
@@ -229,6 +234,7 @@ async function executePatch(
         message: `${failure.message} Recording the failure also failed: ${reason}`,
         stage: "coder",
         versionId: null,
+        tokensUsed: totalTokens(),
       };
     }
   }
@@ -252,7 +258,7 @@ async function executePatch(
 
   if (!coderResult.ok) {
     if (isAborting(coderResult.error)) {
-      return { status: "aborted" };
+      return { status: "aborted", tokensUsed: totalTokens() };
     }
 
     return failWithVersion(coderResult.error);
@@ -270,7 +276,7 @@ async function executePatch(
       errorLog: null,
       promoteCurrent: true,
       modelUsed: deps.models.coder,
-      tokensUsed: usage.inputTokens + usage.outputTokens,
+      tokensUsed: totalTokens(),
       executionTimeMs: elapsed(),
       assistantMessage: patchAssistantMessage(request.instruction),
     });
@@ -280,10 +286,11 @@ async function executePatch(
       gameId: persisted.gameId,
       versionId: persisted.versionId,
       versionNumber: persisted.versionNumber,
+      tokensUsed: totalTokens(),
     };
   } catch (error) {
     if (isAborting(error)) {
-      return { status: "aborted" };
+      return { status: "aborted", tokensUsed: totalTokens() };
     }
 
     return {
@@ -292,6 +299,7 @@ async function executePatch(
       message: "The patch could not be recorded.",
       stage: "coder",
       versionId: null,
+      tokensUsed: totalTokens(),
     };
   }
 }

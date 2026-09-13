@@ -10,6 +10,7 @@ import {
   finishGenerationRun,
   type RunStatus,
 } from "@/lib/games/run-guard";
+import { createPostgresQuotaStore } from "@/lib/quota/postgres-store";
 import { preStreamFailure } from "@/lib/pipeline/http-status";
 import { resolveLlmBootstrap } from "@/lib/pipeline/llm-bootstrap";
 import { runPatch } from "@/lib/pipeline/patch";
@@ -69,7 +70,22 @@ export async function POST(request: Request): Promise<Response> {
     return preStreamFailure("game_not_found", "No editable version for this game.");
   }
 
-  const bootstrap = await resolveLlmBootstrap(getServerEnv(), request.signal);
+  const env = getServerEnv();
+
+  // Shared with /api/generate, so a burst or a spent budget refuses an edit just
+  // as it refuses a generation, before any billable call.
+  const quota = createPostgresQuotaStore({
+    dailyTokenBudget: env.dailyTokenBudget,
+    runBurstPerMinute: env.runBurstPerMinute,
+  });
+
+  const refusal = await quota.checkRunAllowed(profile.id, profile.role === "admin");
+
+  if (refusal !== null) {
+    return preStreamFailure(refusal.code, refusal.message);
+  }
+
+  const bootstrap = await resolveLlmBootstrap(env, request.signal);
 
   if (!bootstrap.ok) {
     return bootstrap.response;
@@ -91,6 +107,7 @@ export async function POST(request: Request): Promise<Response> {
   return createSseResponse({
     run: async (emit) => {
       let status: RunStatus = "failed";
+      let chargeable = 0;
 
       try {
         const outcome = await runPatch(
@@ -108,7 +125,15 @@ export async function POST(request: Request): Promise<Response> {
         );
 
         status = outcome.status;
+
+        // As in /api/generate: charged for the tokens the edit actually spent,
+        // whether it completed, failed, or was aborted. A failed or aborted edit
+        // is not free, and a completed one is not charged for phantom work.
+        chargeable = outcome.tokensUsed;
       } finally {
+        // Charged before the slot is released, so the next run's quota check
+        // sees this spend. Best-effort: chargeRun swallows its own write failure.
+        await quota.chargeRun(profile.id, chargeable);
         await finishGenerationRun(runId, status);
       }
     },
