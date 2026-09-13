@@ -349,7 +349,8 @@ describe("runGeneration — abort", () => {
       abortDuring: "spec",
     });
 
-    expect(outcome).toEqual({ status: "aborted" });
+    // Aborted during Spec: no stage answered, so nothing was billed.
+    expect(outcome).toEqual({ status: "aborted", tokensUsed: 0 });
     expect(persistCalls).toHaveLength(0);
     expect(eventNames).toEqual(["run.started", "stage.started"]);
   });

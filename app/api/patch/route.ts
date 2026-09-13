@@ -10,6 +10,7 @@ import {
   finishGenerationRun,
   type RunStatus,
 } from "@/lib/games/run-guard";
+import { createPostgresQuotaStore } from "@/lib/quota/postgres-store";
 import { preStreamFailure } from "@/lib/pipeline/http-status";
 import { resolveLlmBootstrap } from "@/lib/pipeline/llm-bootstrap";
 import { runPatch } from "@/lib/pipeline/patch";
@@ -69,7 +70,22 @@ export async function POST(request: Request): Promise<Response> {
     return preStreamFailure("game_not_found", "No editable version for this game.");
   }
 
-  const bootstrap = await resolveLlmBootstrap(getServerEnv(), request.signal);
+  const env = getServerEnv();
+
+  // Shared with /api/generate, so a burst or a spent budget refuses an edit just
+  // as it refuses a generation, before any billable call.
+  const quota = createPostgresQuotaStore({
+    dailyTokenBudget: env.dailyTokenBudget,
+    runBurstPerMinute: env.runBurstPerMinute,
+  });
+
+  const refusal = await quota.checkRunAllowed(profile.id, profile.role === "admin");
+
+  if (refusal !== null) {
+    return preStreamFailure(refusal.code, refusal.message);
+  }
+
+  const bootstrap = await resolveLlmBootstrap(env, request.signal);
 
   if (!bootstrap.ok) {
     return bootstrap.response;
@@ -91,6 +107,7 @@ export async function POST(request: Request): Promise<Response> {
   return createSseResponse({
     run: async (emit) => {
       let status: RunStatus = "failed";
+      let chargeable = 0;
 
       try {
         const outcome = await runPatch(
@@ -108,8 +125,15 @@ export async function POST(request: Request): Promise<Response> {
         );
 
         status = outcome.status;
+
+        // A failed or aborted patch is free, matching generation: only a
+        // completed edit is charged.
+        if (outcome.status === "completed") {
+          chargeable = outcome.tokensUsed;
+        }
       } finally {
         await finishGenerationRun(runId, status);
+        await quota.chargeRun(profile.id, chargeable);
       }
     },
     onUnexpectedError: (error) => {

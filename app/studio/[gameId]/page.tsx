@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { requireUser } from "@/lib/dal";
+import { getServerEnv } from "@/lib/env/server";
 import { getGameWorkspace } from "@/lib/games/repository";
+import { createPostgresQuotaStore } from "@/lib/quota/postgres-store";
 import { StudioWorkspace } from "../_components/StudioWorkspace";
 
 const paramsSchema = z.object({ gameId: z.uuid() });
@@ -24,6 +26,13 @@ export default async function StudioGamePage({
     notFound();
   }
 
+  const env = getServerEnv();
+
+  const quota = await createPostgresQuotaStore({
+    dailyTokenBudget: env.dailyTokenBudget,
+    runBurstPerMinute: env.runBurstPerMinute,
+  }).readStatus(profile.id, profile.role === "admin");
+
   return (
     <StudioWorkspace
       gameId={workspace.id}
@@ -31,6 +40,7 @@ export default async function StudioGamePage({
       currentVersionId={workspace.currentVersionId}
       versions={workspace.versions}
       messages={workspace.messages}
+      quota={quota}
     />
   );
 }

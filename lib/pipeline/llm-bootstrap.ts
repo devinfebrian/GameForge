@@ -1,6 +1,10 @@
 import type { ServerEnv } from "@/lib/env/server";
 import { createGatewayClient } from "@/lib/llm/chat-completions";
-import { loadAgentModels, loadDebugModel } from "@/lib/llm/config";
+import {
+  loadAgentModels,
+  loadDebugModel,
+  loadGatewayCredential,
+} from "@/lib/llm/config";
 import { GenerationError } from "@/lib/llm/errors";
 import { createFakeGatewayClient, FAKE_MODELS } from "@/lib/llm/fake-client";
 import { assertModelAvailable } from "@/lib/llm/models";
@@ -15,6 +19,12 @@ import { preStreamFailure } from "@/lib/pipeline/http-status";
 const MODEL_LIST_TIMEOUT_MS = 15_000;
 const MODEL_CALL_TIMEOUT_MS = 90_000;
 
+const CREDENTIAL_MISSING_MESSAGE =
+  "ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL must both be set to enable game generation.";
+
+const DEBUG_CREDENTIAL_MISSING_MESSAGE =
+  "ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL must both be set to enable automatic repair.";
+
 export type LlmBootstrap =
   | { readonly ok: true; readonly client: LlmClient; readonly models: AgentModels }
   | { readonly ok: false; readonly response: Response };
@@ -22,6 +32,11 @@ export type LlmBootstrap =
 /**
  * Resolves the gateway client and the per-agent model ids for a run, or the
  * pre-stream failure that explains why it cannot start.
+ *
+ * The credential is the stored gateway override when one exists, else
+ * `ANTHROPIC_API_KEY`. A stored key that cannot be decrypted, or rows that
+ * disagree about it, surfaces as its own error code rather than silently falling
+ * back to the environment: a broken override must not look like a working one.
  *
  * Shared by /api/generate and /api/patch so the two cannot drift on the one
  * decision that matters: a fake client is only ever constructed when
@@ -39,25 +54,30 @@ export async function resolveLlmBootstrap(
     return { ok: true, client: createFakeGatewayClient(), models: FAKE_MODELS };
   }
 
-  const { anthropicApiKey: credential, anthropicBaseUrl: baseUrl } = env;
+  const { anthropicBaseUrl: baseUrl } = env;
 
-  if (credential === null || baseUrl === null) {
+  if (baseUrl === null) {
     return {
       ok: false,
-      response: preStreamFailure(
-        "config_missing",
-        "ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL must both be set to enable game generation.",
-      ),
+      response: preStreamFailure("config_missing", CREDENTIAL_MISSING_MESSAGE),
     };
   }
-
-  let models: AgentModels;
 
   // Resolved before the stream opens, so a missing configuration row, a rejected
   // credential, or a stale model id is a real status code rather than a stream
   // that silently stops.
   try {
-    models = await loadAgentModels();
+    const credential =
+      (await loadGatewayCredential(env.integrationEncryptionKey)) ?? env.anthropicApiKey;
+
+    if (credential === null) {
+      return {
+        ok: false,
+        response: preStreamFailure("config_missing", CREDENTIAL_MISSING_MESSAGE),
+      };
+    }
+
+    const models = await loadAgentModels();
 
     for (const model of new Set(Object.values(models))) {
       await assertModelAvailable(baseUrl, credential, model, {
@@ -65,6 +85,16 @@ export async function resolveLlmBootstrap(
         timeoutMs: MODEL_LIST_TIMEOUT_MS,
       });
     }
+
+    return {
+      ok: true,
+      client: createGatewayClient({
+        baseUrl,
+        credential,
+        timeoutMs: MODEL_CALL_TIMEOUT_MS,
+      }),
+      models,
+    };
   } catch (error) {
     // The model-list fetch is tied to the request signal, so a disconnect here
     // surfaces as an abort rather than an unhandled rejection. There is no client
@@ -82,16 +112,6 @@ export async function resolveLlmBootstrap(
 
     throw error;
   }
-
-  return {
-    ok: true,
-    client: createGatewayClient({
-      baseUrl,
-      credential,
-      timeoutMs: MODEL_CALL_TIMEOUT_MS,
-    }),
-    models,
-  };
 }
 
 export type DebugLlmBootstrap =
@@ -114,19 +134,26 @@ export async function resolveDebugLlm(
     return { ok: true, client: createFakeGatewayClient(), model: FAKE_MODELS.coder };
   }
 
-  const { anthropicApiKey: credential, anthropicBaseUrl: baseUrl } = env;
+  const { anthropicBaseUrl: baseUrl } = env;
 
-  if (credential === null || baseUrl === null) {
+  if (baseUrl === null) {
     return {
       ok: false,
-      response: preStreamFailure(
-        "config_missing",
-        "ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL must both be set to enable automatic repair.",
-      ),
+      response: preStreamFailure("config_missing", DEBUG_CREDENTIAL_MISSING_MESSAGE),
     };
   }
 
   try {
+    const credential =
+      (await loadGatewayCredential(env.integrationEncryptionKey)) ?? env.anthropicApiKey;
+
+    if (credential === null) {
+      return {
+        ok: false,
+        response: preStreamFailure("config_missing", DEBUG_CREDENTIAL_MISSING_MESSAGE),
+      };
+    }
+
     const model = await loadDebugModel();
 
     await assertModelAvailable(baseUrl, credential, model, {

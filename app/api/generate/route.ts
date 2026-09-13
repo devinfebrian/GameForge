@@ -6,6 +6,7 @@ import { findOwnedGame } from "@/lib/games/repository";
 import { beginGenerationRun, finishGenerationRun, type RunStatus } from "@/lib/games/run-guard";
 import { getPublicEnv } from "@/lib/env/public";
 import { getServerEnv } from "@/lib/env/server";
+import { createPostgresQuotaStore } from "@/lib/quota/postgres-store";
 import { runGeneration } from "@/lib/pipeline/generate";
 import { preStreamFailure } from "@/lib/pipeline/http-status";
 import { resolveLlmBootstrap } from "@/lib/pipeline/llm-bootstrap";
@@ -67,7 +68,22 @@ export async function POST(request: Request): Promise<Response> {
 
   // Reading env is central; requiring it is not. Missing gateway config takes
   // generation offline and nothing else.
-  const bootstrap = await resolveLlmBootstrap(getServerEnv(), request.signal);
+  const env = getServerEnv();
+
+  // Refused before the model is resolved and before the run slot is claimed, so
+  // an over-budget or rate-limited caller never reaches a billable call.
+  const quota = createPostgresQuotaStore({
+    dailyTokenBudget: env.dailyTokenBudget,
+    runBurstPerMinute: env.runBurstPerMinute,
+  });
+
+  const refusal = await quota.checkRunAllowed(profile.id, profile.role === "admin");
+
+  if (refusal !== null) {
+    return preStreamFailure(refusal.code, refusal.message);
+  }
+
+  const bootstrap = await resolveLlmBootstrap(env, request.signal);
 
   if (!bootstrap.ok) {
     return bootstrap.response;
@@ -89,6 +105,7 @@ export async function POST(request: Request): Promise<Response> {
   return createSseResponse({
     run: async (emit) => {
       let status: RunStatus = "failed";
+      let chargeable = 0;
 
       try {
         const outcome = await runGeneration(
@@ -106,8 +123,15 @@ export async function POST(request: Request): Promise<Response> {
         );
 
         status = outcome.status;
+
+        // A failed or aborted run costs the user nothing: only a run that
+        // completed is charged, which is why there is no refund path at all.
+        if (outcome.status === "completed") {
+          chargeable = outcome.tokensUsed;
+        }
       } finally {
         await finishGenerationRun(runId, status);
+        await quota.chargeRun(profile.id, chargeable);
       }
     },
     onUnexpectedError: (error) => {
