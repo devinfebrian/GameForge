@@ -52,7 +52,7 @@ export async function PATCH(
 
   if (!ids.success) {
     return Response.json(
-      { error: { code: "invalid_body", message: "Malformed game id." } },
+      { error: { code: "invalid_params", message: "Malformed game id." } },
       { status: 400 },
     );
   }

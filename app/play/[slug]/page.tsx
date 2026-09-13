@@ -10,9 +10,18 @@ interface PlayPageProps {
 }
 
 /**
+ * Rendered per request, never from the Full Route Cache.
+ *
+ * `createPublicClient` holds no session and touches no cookies, so this page uses
+ * no Dynamic API and Next would otherwise be free to cache the render. A cached
+ * page is a publishing bug: an unpublished game would keep answering 200, and a
+ * republished one would keep serving the old source until the entry expired.
+ */
+export const dynamic = "force-dynamic";
+
+/**
  * `generateMetadata` and the page body both need the game. React's `cache` makes
- * that one read per request rather than two — the page is dynamic anyway, because
- * the anon client reads cookies.
+ * that one read per request rather than two.
  */
 const loadPublicGame = cache(findPublicGameBySlug);
 

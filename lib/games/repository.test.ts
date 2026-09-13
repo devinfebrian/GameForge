@@ -300,16 +300,15 @@ describe("getGameWorkspace", () => {
 
 describe("setGameVisibility", () => {
   const privateGame = {
-    id: "game-1",
     title: "Space Blaster",
-    is_public: false,
     public_slug: null,
   };
 
   test("assigns a title-derived slug on first publish", async () => {
     adminDouble.queryQueue = [
       { data: privateGame, error: null },
-      { data: null, error: null },
+      // The guarded update matched the row; the read-back value is not consulted.
+      { data: { is_public: true, public_slug: "space-blaster-zzzz" }, error: null },
     ];
 
     const result = await setGameVisibility({
@@ -334,6 +333,8 @@ describe("setGameVisibility", () => {
         filters: [
           { column: "id", value: "game-1" },
           { column: "user_id", value: "user-1" },
+          // The first publish only writes a row that still has no slug.
+          { column: "public_slug", value: null },
         ],
       },
     ]);
@@ -342,7 +343,7 @@ describe("setGameVisibility", () => {
   test("keeps the slug already reserved on a later publish", async () => {
     adminDouble.queryQueue = [
       { data: { ...privateGame, public_slug: "space-blaster-x7k2" }, error: null },
-      { data: null, error: null },
+      { data: { is_public: true, public_slug: "space-blaster-x7k2" }, error: null },
     ];
 
     const result = await setGameVisibility({
@@ -382,7 +383,7 @@ describe("setGameVisibility", () => {
     adminDouble.queryQueue = [
       { data: privateGame, error: null },
       { data: null, error: { message: "duplicate key value", code: "23505" } },
-      { data: null, error: null },
+      { data: { is_public: true, public_slug: "space-blaster-zzzz" }, error: null },
     ];
 
     const result = await setGameVisibility({
@@ -393,6 +394,35 @@ describe("setGameVisibility", () => {
 
     expect(result.kind).toBe("ok");
     expect(adminDouble.writeCalls).toHaveLength(2);
+  });
+
+  test("reports the stored slug when a concurrent publish wins the race", async () => {
+    adminDouble.queryQueue = [
+      { data: privateGame, error: null },
+      // The guarded update matched no row: another publish claimed the slug first.
+      { data: null, error: null },
+      // The read-back sees the slug that actually landed, not the lost candidate.
+      { data: { is_public: true, public_slug: "space-blaster-w1nn" }, error: null },
+    ];
+
+    expect(
+      await setGameVisibility({ gameId: "game-1", userId: "user-1", isPublic: true }),
+    ).toEqual({
+      kind: "ok",
+      publication: { isPublic: true, publicSlug: "space-blaster-w1nn" },
+    });
+  });
+
+  test("returns not_found when the row vanishes before the slug is written", async () => {
+    adminDouble.queryQueue = [
+      { data: privateGame, error: null },
+      { data: null, error: null },
+      { data: null, error: null },
+    ];
+
+    expect(
+      await setGameVisibility({ gameId: "game-1", userId: "user-1", isPublic: true }),
+    ).toEqual({ kind: "not_found" });
   });
 
   test("gives up once the retry budget is spent", async () => {

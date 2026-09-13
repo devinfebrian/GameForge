@@ -29,18 +29,25 @@ export function mimeTypeFor(extension: string): string {
 }
 
 /**
- * A byte-at-a-time loop rather than `String.fromCharCode(...bytes)`: the spread
- * form passes one argument per byte and overflows the call stack somewhere
- * around a hundred thousand of them, which a single sprite can reach.
+ * 32768 is well under the engine argument limit the spread form trips, and large
+ * enough that a sprite is a handful of calls rather than one per byte.
+ */
+const BASE64_CHUNK = 0x8000;
+
+/**
+ * Chunked rather than `String.fromCharCode(...bytes)`: the spread form passes one
+ * argument per byte and overflows the call stack somewhere around a hundred
+ * thousand of them, which a single sprite can reach. Bounding the spread to a
+ * chunk keeps the call safe while avoiding a per-byte string append.
  */
 export function toBase64(bytes: Uint8Array): string {
-  let binary = "";
+  const parts: Array<string> = [];
 
-  for (let index = 0; index < bytes.length; index += 1) {
-    binary += String.fromCharCode(bytes[index]);
+  for (let offset = 0; offset < bytes.length; offset += BASE64_CHUNK) {
+    parts.push(String.fromCharCode(...bytes.subarray(offset, offset + BASE64_CHUNK)));
   }
 
-  return btoa(binary);
+  return btoa(parts.join(""));
 }
 
 export function toDataUri(bytes: Uint8Array, mimeType: string): string {

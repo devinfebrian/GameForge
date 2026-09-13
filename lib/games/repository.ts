@@ -635,12 +635,49 @@ export type VisibilityResult =
   | { readonly kind: "ok"; readonly publication: GamePublication }
   | { readonly kind: "not_found" };
 
+// Only the two columns a publish actually branches on. The visibility itself is
+// read back from the write, so selecting it here would be dead data.
 const visibilityRowSchema = z.object({
-  id: z.string(),
   title: z.string(),
+  public_slug: z.string().nullable(),
+});
+
+const publicationRowSchema = z.object({
   is_public: z.boolean(),
   public_slug: z.string().nullable(),
 });
+
+function toPublication(row: z.infer<typeof publicationRowSchema>): GamePublication {
+  return { isPublic: row.is_public, publicSlug: row.public_slug };
+}
+
+/**
+ * A read-back of the two columns a publish writes. It exists so every branch can
+ * answer with the row the database actually holds instead of the value this
+ * process intended to write.
+ */
+async function loadPublication(
+  admin: ReturnType<typeof createAdminClient>,
+  gameId: string,
+  userId: string,
+): Promise<GamePublication | null> {
+  const { data, error } = await admin
+    .from("games")
+    .select("is_public, public_slug")
+    .eq("id", gameId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error !== null) {
+    throw new Error(`Failed to load game ${gameId}: ${error.message}`);
+  }
+
+  if (data === null) {
+    return null;
+  }
+
+  return toPublication(publicationRowSchema.parse(data));
+}
 
 /**
  * How many suffixes to draw before giving up on finding a free one.
@@ -662,7 +699,9 @@ const UNIQUE_VIOLATION = "23505";
  *
  * The slug is assigned exactly once, on the first publish. It is not derived
  * from the title again on later publishes, because the title can change and a
- * moved goalpost would silently break every link that was already shared.
+ * moved goalpost would silently break every link that was already shared. The
+ * first-publish write is guarded by `is("public_slug", null)` so two publishes
+ * racing on the same game cannot both claim a slug.
  *
  * Plain SQL rather than a Postgres function: the only correctness requirement is
  * that the slug is unique, and `games_public_slug_key` already enforces that.
@@ -685,7 +724,7 @@ export async function setGameVisibility(options: {
 
   const { data: gameData, error: gameError } = await admin
     .from("games")
-    .select("id, title, is_public, public_slug")
+    .select("title, public_slug")
     .eq("id", gameId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -717,34 +756,58 @@ export async function setGameVisibility(options: {
       return { kind: "not_found" };
     }
 
-    return { kind: "ok", publication: { isPublic: false, publicSlug: game.public_slug } };
+    return { kind: "ok", publication: toPublication(publicationRowSchema.parse(data)) };
   }
 
   // Republishing keeps the slug the game already reserved.
   if (game.public_slug !== null) {
-    const { error } = await admin
+    const { data, error } = await admin
       .from("games")
       .update({ is_public: true })
       .eq("id", gameId)
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .select("is_public, public_slug")
+      .maybeSingle();
 
     if (error !== null) {
       throw new Error(`Failed to publish ${gameId}: ${error.message}`);
     }
 
-    return { kind: "ok", publication: { isPublic: true, publicSlug: game.public_slug } };
+    if (data === null) {
+      return { kind: "not_found" };
+    }
+
+    return { kind: "ok", publication: toPublication(publicationRowSchema.parse(data)) };
   }
 
   for (let attempt = 0; attempt < SLUG_COLLISION_RETRIES; attempt += 1) {
     const candidate = buildPublicSlug(game.title, createSlugSuffix());
 
-    const { error } = await admin
+    const { data, error } = await admin
       .from("games")
       .update({ is_public: true, public_slug: candidate })
       .eq("id", gameId)
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      // Only the first publish may write the slug. Without this, two publishes
+      // that both read `null` would race and the loser would report a slug the
+      // row never carried.
+      .is("public_slug", null)
+      .select("is_public, public_slug")
+      .maybeSingle();
 
     if (error === null) {
+      // No row means the slug was claimed between the read and the write (or the
+      // game disappeared). Answer with what is stored, not the lost candidate.
+      if (data === null) {
+        const current = await loadPublication(admin, gameId, userId);
+
+        return current === null
+          ? { kind: "not_found" }
+          : { kind: "ok", publication: current };
+      }
+
+      // The update matched and set exactly this candidate, so no read-back of its
+      // value is needed; `data` only had to be non-null to prove a row matched.
       return { kind: "ok", publication: { isPublic: true, publicSlug: candidate } };
     }
 

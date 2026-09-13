@@ -37,6 +37,26 @@ describe("escapeInlineScript", () => {
     expect(escapeInlineScript("</script></script>")).toBe("<\\/script><\\/script>");
   });
 
+  test("neutralises the comment opener that reaches the escaped states", () => {
+    expect(escapeInlineScript("<!--<script>x</script>")).toBe(
+      "<\\u0021--<script>x<\\/script>",
+    );
+  });
+
+  test("keeps the meaning of an escaped comment opener", () => {
+    const original = "<!--<script>";
+
+    expect(new Function(`return "${escapeInlineScript(original)}";`)()).toBe(original);
+  });
+
+  test("stays valid inside a unicode-flag regex", () => {
+    // `\!` would throw here, and that SyntaxError would take the whole export
+    // down if a vendor bundle or scene carried `<!--` in a `/u` regex.
+    const regex = new RegExp(escapeInlineScript("<!--"), "u");
+
+    expect(regex.test("<!--")).toBe(true);
+  });
+
   test("produces a string that parses back to the original in JavaScript", () => {
     const original = "a</script>b";
 

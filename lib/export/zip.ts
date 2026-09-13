@@ -70,12 +70,16 @@ export function crc32(bytes: Uint8Array): number {
 }
 
 function toDosDateTime(date: Date): { readonly time: number; readonly date: number } {
-  const year = Math.max(DOS_EPOCH_YEAR, date.getFullYear());
+  // UTC rather than local getters: the archive is meant to be reproducible for a
+  // fixed date, and a local-time encoding would differ by the machine's zone.
+  const year = Math.max(DOS_EPOCH_YEAR, date.getUTCFullYear());
 
   const time =
-    (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
+    (date.getUTCHours() << 11) |
+    (date.getUTCMinutes() << 5) |
+    Math.floor(date.getUTCSeconds() / 2);
   const day =
-    ((year - DOS_EPOCH_YEAR) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+    ((year - DOS_EPOCH_YEAR) << 9) | ((date.getUTCMonth() + 1) << 5) | date.getUTCDate();
 
   return { time: time & 0xffff, date: day & 0xffff };
 }
@@ -112,6 +116,13 @@ export function buildZip(
   entries: ReadonlyArray<ZipEntry>,
   options: ZipOptions = {},
 ): Uint8Array<ArrayBuffer> {
+  // Both directory counts are 16-bit fields, so the format itself has no way to
+  // describe more. An export is a handful of files; this is a format guard, not
+  // an expected limit.
+  if (entries.length > 0xffff) {
+    throw new Error("A ZIP archive cannot carry more than 65535 entries.");
+  }
+
   const encoder = new TextEncoder();
   const { time, date } = toDosDateTime(options.modifiedAt ?? new Date());
 

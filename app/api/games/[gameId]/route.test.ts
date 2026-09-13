@@ -48,7 +48,7 @@ describe("PATCH /api/games/[gameId]", () => {
   test("publishes an unpublished game and returns the new slug", async () => {
     adminDouble.queryQueue = [
       { data: { id: GAME_ID, title: "Space Blaster", is_public: false, public_slug: null }, error: null },
-      { data: null, error: null },
+      { data: { is_public: true, public_slug: "space-blaster-zzzz" }, error: null },
     ];
 
     const response = await patch(GAME_ID, { isPublic: true });
@@ -90,12 +90,18 @@ describe("PATCH /api/games/[gameId]", () => {
     const response = await patch("not-a-uuid", { isPublic: true });
 
     expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: "invalid_params", message: "Malformed game id." },
+    });
   });
 
   test("answers 400 for a body that is not an isPublic boolean", async () => {
     const response = await patch(GAME_ID, { isPublic: "yes" });
 
     expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: "invalid_body", message: "Expected an isPublic boolean." },
+    });
     expect(adminDouble.queryQueue).toHaveLength(0);
   });
 

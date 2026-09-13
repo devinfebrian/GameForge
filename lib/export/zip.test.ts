@@ -147,6 +147,15 @@ describe("buildZip", () => {
     expect(readZip(buildZip([], { modifiedAt: FIXED_DATE }))).toEqual([]);
   });
 
+  test("refuses more entries than the format can count", () => {
+    const entries: ReadonlyArray<ZipEntry> = Array.from(
+      { length: 0x10000 },
+      (_, index) => ({ path: `file-${index}`, bytes: new Uint8Array(0) }),
+    );
+
+    expect(() => buildZip(entries, { modifiedAt: FIXED_DATE })).toThrow("65535");
+  });
+
   test("handles a name long enough to need the full length field", () => {
     const path = `${"a".repeat(200)}.js`;
     const entries = readZip(buildZip([{ path, bytes: encode("x") }], { modifiedAt: FIXED_DATE }));
