@@ -77,3 +77,43 @@ export async function loadAgentModels(): Promise<AgentModels> {
     ),
   ) as AgentModels;
 }
+
+/**
+ * The model for the debug agent, which is not a generation stage and so has no
+ * entry in `AgentModels`. Resolved separately rather than folded into the map,
+ * so `/api/generate` still refuses to start when only the debug row is missing.
+ */
+export async function loadDebugModel(): Promise<string> {
+  const { data, error } = await createAdminClient()
+    .from("llm_configurations")
+    .select("agent_type, provider, model_name")
+    .eq("is_active", true)
+    .eq("agent_type", "debug_agent")
+    .maybeSingle();
+
+  if (error !== null) {
+    throw new GenerationError(
+      "config_missing",
+      "Could not read the debug agent configuration.",
+      { cause: error.message },
+    );
+  }
+
+  if (data === null) {
+    throw new GenerationError(
+      "config_missing",
+      "No active LLM configuration for debug_agent.",
+    );
+  }
+
+  const row = llmConfigRowSchema.parse(data);
+
+  if (row.provider !== "anthropic") {
+    throw new GenerationError(
+      "config_missing",
+      `Provider "${row.provider}" is not supported yet.`,
+    );
+  }
+
+  return row.model_name;
+}

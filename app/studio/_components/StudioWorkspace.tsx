@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SandboxFrame } from "@/app/_components/SandboxFrame";
+import type { DebugErrorReport } from "@/lib/agents/debug/prompt";
 import type { GenerationStage } from "@/lib/agents/types";
 import type { TranscriptMessage, VersionSummary } from "@/lib/games/repository";
 import { streamRun } from "@/lib/pipeline/client";
@@ -36,6 +37,65 @@ const buttonClassName =
   "rounded border border-black/15 px-3 py-1.5 text-sm disabled:opacity-40 dark:border-white/20";
 
 const INSTRUCTION_MAX_LENGTH = 2000;
+
+// Three seconds of clean execution makes a version stable. It is wall-clock, and
+// the timer below is torn down whenever the tab is hidden or the game is paused,
+// so neither can fail a game that is actually fine.
+const PROBATION_MS = 3000;
+
+// The report sent when the frame never reached SCENE_READY. There is no
+// RUNTIME_ERROR to forward in that case, only the timeout.
+const BOOT_TIMEOUT_REPORT: DebugErrorReport = {
+  message: "The game did not start within ten seconds.",
+  stack: null,
+  line: null,
+  column: null,
+  phase: "create",
+};
+
+type DebugResponse =
+  | { readonly status: "candidate"; readonly candidateVersionId: string; readonly attempt: number; readonly remaining: number }
+  | { readonly status: "gate_failed"; readonly attempt: number; readonly remaining: number }
+  | { readonly status: "exhausted"; readonly attempt: number };
+
+function useDocumentHidden(): boolean {
+  const [hidden, setHidden] = useState(false);
+
+  useEffect(() => {
+    const update = (): void => setHidden(document.hidden);
+
+    update();
+    document.addEventListener("visibilitychange", update);
+
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+
+  return hidden;
+}
+
+async function readFailureMessage(response: Response): Promise<string> {
+  try {
+    const payload: unknown = await response.json();
+
+    if (
+      typeof payload === "object" &&
+      payload !== null &&
+      "error" in payload &&
+      typeof (payload as { error: unknown }).error === "object" &&
+      (payload as { error: unknown }).error !== null
+    ) {
+      const message = (payload as { error: { message?: unknown } }).error.message;
+
+      if (typeof message === "string") {
+        return message;
+      }
+    }
+  } catch {
+    // Fall through.
+  }
+
+  return "Automatic repair could not be started.";
+}
 
 interface BootPayload {
   readonly sourceCode: string;
@@ -76,6 +136,9 @@ export function StudioWorkspace({
   const router = useRouter();
   const bridge = useSandboxBridge();
   const { loadCode, ready } = bridge;
+  // A hidden tab throttles rAF to a standstill, so probation is suspended rather
+  // than failed while the document is in the background.
+  const hidden = useDocumentHidden();
 
   const [instruction, setInstruction] = useState("");
   const [busy, setBusy] = useState(false);
@@ -93,6 +156,12 @@ export function StudioWorkspace({
   // Separates "what the frame is showing" from "what the game points at".
   const [previewVersionId, setPreviewVersionId] = useState<string | null>(currentVersionId);
 
+  // The version currently under probation. Null while previewing an older version
+  // or once a version has proved itself, which is what stops an old preview from
+  // being marked stable.
+  const [evaluateVersionId, setEvaluateVersionId] = useState<string | null>(currentVersionId);
+  const [repairNotice, setRepairNotice] = useState<string | null>(null);
+
   const abortRef = useRef<AbortController | null>(null);
   // Guards against a double submit landing before React has re-rendered the
   // disabled button. The server would answer 409 anyway; this keeps the UI from
@@ -100,6 +169,16 @@ export function StudioWorkspace({
   const busyRef = useRef(false);
   const bootedRef = useRef<string | null>(null);
   const turnIdRef = useRef(0);
+  // A repair is one in-flight request sequence at a time, and each distinct
+  // failure is handled once, so a re-render or a duplicate error cannot fan out
+  // into parallel attempts.
+  const repairBusyRef = useRef(false);
+  // The version the frame is actually running, set only once LOAD_CODE has been
+  // sent. It is what stops a stale error from the previous version being
+  // attributed to a freshly requested candidate before that candidate has booted.
+  const runningVersionRef = useRef<string | null>(null);
+  const handledErrorRef = useRef<unknown>(null);
+  const handledTimeoutForRef = useRef<string | null>(null);
 
   const addUnpersistedTurn = useCallback((text: string, note: string) => {
     turnIdRef.current += 1;
@@ -146,6 +225,9 @@ export function StudioWorkspace({
           return;
         }
 
+        // Recorded only once LOAD_CODE is about to be sent: probation and repair
+        // must never be attributed to a version that never actually booted.
+        runningVersionRef.current = versionId;
         loadCode(payload.sourceCode, payload.assetManifest);
       } catch {
         setBootError("This version could not be loaded.");
@@ -170,6 +252,148 @@ export function StudioWorkspace({
     void boot(bootVersionId);
   }, [ready, bootVersionId, boot]);
 
+  const commitStability = useCallback(
+    async (versionId: string) => {
+      if (gameId === null) {
+        return;
+      }
+
+      try {
+        await fetch(`/api/games/${gameId}/versions/${versionId}/stability`, {
+          method: "PATCH",
+        });
+      } catch {
+        // Best-effort: the version simply stays unproven and a later boot retries.
+      }
+
+      setEvaluateVersionId((current) => (current === versionId ? null : current));
+      router.refresh();
+    },
+    [gameId, router],
+  );
+
+  const attemptRepair = useCallback(
+    async (baseVersionId: string, report: DebugErrorReport) => {
+      if (gameId === null || repairBusyRef.current) {
+        return;
+      }
+
+      repairBusyRef.current = true;
+      setRepairNotice("Repairing the game automatically...");
+
+      try {
+        const base = baseVersionId;
+
+        // A gate failure has no candidate to boot, so it is retried inline within
+        // the same budget instead of bouncing off the frame. The server enforces
+        // the ceiling, so the loop bound is belt-and-braces.
+        for (let step = 0; step < 4; step += 1) {
+          const response = await fetch("/api/debug", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              gameId,
+              versionId: base,
+              error: {
+                message: report.message,
+                stack: report.stack,
+                line: report.line,
+                column: report.column,
+                phase: report.phase,
+              },
+            }),
+          });
+
+          if (!response.ok) {
+            setRepairNotice(await readFailureMessage(response));
+            return;
+          }
+
+          const data = (await response.json()) as DebugResponse;
+
+          if (data.status === "candidate") {
+            setRepairNotice(`Applying an automatic repair (attempt ${data.attempt} of 3).`);
+            setEvaluateVersionId(data.candidateVersionId);
+            setBootVersionId(data.candidateVersionId);
+            return;
+          }
+
+          if (data.status === "gate_failed") {
+            if (data.remaining > 0) {
+              continue;
+            }
+
+            setEvaluateVersionId(null);
+            setRepairNotice("Automatic repair could not produce a usable game.");
+            router.refresh();
+            return;
+          }
+
+          setEvaluateVersionId(null);
+          setRepairNotice(
+            "Automatic repair stopped after three attempts. Regenerate to start over.",
+          );
+          router.refresh();
+          return;
+        }
+      } catch {
+        setRepairNotice("Automatic repair could not be started.");
+      } finally {
+        repairBusyRef.current = false;
+      }
+    },
+    [gameId, router],
+  );
+
+  // Probation: a booted version survives PROBATION_MS of error-free execution
+  // while visible and unpaused, and is then confirmed stable. The timer is torn
+  // down on pause or a hidden tab, so neither can fail a healthy game.
+  useEffect(() => {
+    if (gameId === null || evaluateVersionId === null) {
+      return;
+    }
+
+    if (bridge.status !== "running" || hidden) {
+      return;
+    }
+
+    const versionId = evaluateVersionId;
+    const timer = setTimeout(() => {
+      void commitStability(versionId);
+    }, PROBATION_MS);
+
+    return () => clearTimeout(timer);
+  }, [gameId, evaluateVersionId, bridge.status, hidden, commitStability]);
+
+  // Repair: a runtime error, or a boot that never reached SCENE_READY, on the
+  // version the frame is actually running. Anything else is a stale error from a
+  // version that has already been superseded.
+  useEffect(() => {
+    if (gameId === null || evaluateVersionId === null) {
+      return;
+    }
+
+    if (bridge.status !== "error" || evaluateVersionId !== runningVersionRef.current) {
+      return;
+    }
+
+    if (bridge.lastError !== null) {
+      if (handledErrorRef.current === bridge.lastError) {
+        return;
+      }
+
+      handledErrorRef.current = bridge.lastError;
+    } else {
+      if (handledTimeoutForRef.current === evaluateVersionId) {
+        return;
+      }
+
+      handledTimeoutForRef.current = evaluateVersionId;
+    }
+
+    void attemptRepair(evaluateVersionId, bridge.lastError ?? BOOT_TIMEOUT_REPORT);
+  }, [gameId, evaluateVersionId, bridge.status, bridge.lastError, attemptRepair]);
+
   // A run must not outlive the page: navigating away cancels the fetch, which
   // fires request.signal server-side and is what makes "an aborted run persists
   // nothing" true through the UI as well as in tests.
@@ -193,6 +417,7 @@ export function StudioWorkspace({
       setFailure(null);
       setWarning(null);
       setBootError(null);
+      setRepairNotice(null);
       setDoneStages([]);
       setActiveStage(null);
       setRunKind(kind);
@@ -226,6 +451,7 @@ export function StudioWorkspace({
 
         setBootVersionId(data.versionId);
         setPreviewVersionId(data.versionId);
+        setEvaluateVersionId(data.versionId);
         router.refresh();
         return;
       }
@@ -284,6 +510,7 @@ export function StudioWorkspace({
 
         setBootVersionId(versionId);
         setPreviewVersionId(versionId);
+        setEvaluateVersionId(null);
         router.refresh();
       } catch {
         setFailure("That version could not be restored.");
@@ -295,6 +522,9 @@ export function StudioWorkspace({
   const preview = useCallback((versionId: string) => {
     setPreviewVersionId(versionId);
     setBootVersionId(versionId);
+    // A preview is not on probation: an old version must not be marked stable by
+    // watching it, and a crash in it must not trigger a repair.
+    setEvaluateVersionId(null);
   }, []);
 
   const isPreviewingOther =
@@ -386,6 +616,10 @@ export function StudioWorkspace({
 
           {failure === null ? null : (
             <p className="text-sm text-red-600 dark:text-red-400">{failure}</p>
+          )}
+
+          {repairNotice === null ? null : (
+            <p className="text-sm text-amber-600 dark:text-amber-400">{repairNotice}</p>
           )}
         </section>
 

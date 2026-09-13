@@ -87,17 +87,20 @@ flowchart TD
 - **Asset licensing**: Kenney packs are CC0 1.0, Phaser is MIT, and jsfxr is UNLICENSE; all recorded in `lib/assets/CREDITS.md`. Curated sprites are deliberately not committed — `lib/assets/curation.json` is the source of truth and `bun run assets:sync` uploads them and regenerates the committed `lib/assets/catalog.json`.
 
 ### 2.3 Automated Debug Agent & Rollback Loop
-- **Probationary Grace Period**: After `LOAD_CODE`, the runner monitors the game for 3 seconds of clean execution (`preload()`, `create()`, and continuous `update()` frames). A `SCENE_READY` plus surviving-heartbeat sequence triggers a write-back to `PATCH /api/games/:id/versions/:versionId/stability` (service-role, owner-checked), which commits `is_stable = true` and updates `games.last_stable_version_id`.
+- **Probationary Grace Period**: After `LOAD_CODE`, the runner monitors the game for a 3-second window of error-free execution (`preload()`, `create()`, and a live `update()` loop). The window is wall-clock and suspended while the document is hidden or the game is paused, so neither a throttled background tab (rAF falls to ~0 when hidden) nor the Pause control can stall or fail a probation. `SCENE_READY` plus an error-free window triggers a write-back to `PATCH /api/games/:id/versions/:versionId/stability` (session-authenticated, service-role, owner-checked), whose `commit_version_stability` function sets `is_stable = true` and, for a debug candidate, promotes `games.current_version_id` in the same atomic call. `is_stable` is **product state, not a security boundary**: the browser is the only witness that the game ran, so the claim is trusted and scoped to the version's owner. Nothing server-side re-verifies it, by design.
+- **Bounded probation**: a candidate that has not reached `SCENE_READY` within a 10-second boot deadline (a hang, a stalled `preload`, a script that never loads) is a failed attempt, not an open wait. The loop always terminates.
 - **Probation edge cases**:
   - Tab closed mid-probation: the callback never arrives, the version stays `is_stable = false`, and `last_stable_version_id` keeps pointing at the previous good version.
-  - Hot-patch during probation: the pending probation is cancelled, never left orphaned, and the new version starts its own.
-  - Duplicate or late callbacks: idempotent by `version_id`; a stability write for a version that is no longer `games.current_version_id` is ignored.
+  - Hot-patch during probation: probation exists only as the Studio's client-side timer, so a hot-patch clears it; there is no server-side probation state to orphan.
+  - Duplicate or late callbacks: idempotent by `version_id`. Re-confirming the already-current version is a no-op, and a candidate whose base has since been superseded is never promoted — an explicit user action always outranks the automatic repair.
 - **Failure Recovery Loop**:
-  - If a runtime or syntax error fires during probation:
-    1. PostMessage bridge forwards error payload (stack, message, failing code).
-    2. Studio immediately calls `/api/debug` with failing source code, error trace, and game spec.
-    3. Debug Agent generates a targeted surgical fix (up to 3 consecutive retries).
-    4. If 3 attempts fail, the sandbox automatically reverts to `last_stable_version_id` and surfaces a clear diagnostic toast to the user.
+  1. The PostMessage bridge forwards the error payload (message, line, callstack, failing phase).
+  2. The pointer is made safe **immediately**, not after three attempts and before the model is even resolved: `games.current_version_id` is repointed at `last_stable_version_id` by the idempotent `reset_game_current_to_stable` function (same row lock as `persist_generation`), or set to `NULL` when no stable version exists. The broken version is kept as an immutable snapshot and never mutated, so a reload never re-boots known-broken code.
+  3. The Studio calls `POST /api/debug` with the failing version's source, the error trace (clipped to a bounded size), and the stored spec. The call claims the user's run slot for its duration, exactly as `/api/generate` and `/api/patch` do.
+  4. The Debug Agent returns one surgical fix. The server runs the boot gate (`inspectSceneSource`) and writes exactly one `game_versions` row: the fix as a **non-promoted, non-stable** candidate when it passes, or a source-less tombstone when it does not, so an unusable answer still consumes an attempt. `debug_of_version_id` names the session root — the original broken version, carried unchanged through the whole chain. The client boots a candidate and probation repeats.
+  5. On proof, the stability write commits the candidate (`is_stable = true` plus promotion), guarded so a version promoted by the user in the meantime is never overwritten.
+- **Attempt limit is server-enforced**: the attempt count is the number of candidates already rooted at the session root (`debug_of_version_id`, which defaults to the version's own id for the first failure), so a page reload cannot reset it and a fourth `/api/debug` call is refused idempotently rather than starting a fourth attempt. There is no client `for` loop and no session table. After the third failure the loop ends in the state from step 2: `current_version_id` at `last_stable_version_id`, or — for a first-ever version with no stable target — `NULL` plus a terminal "couldn't repair this game" prompt offering regeneration from the stored prompt.
+- **Debug-agent config**: a Phase 5 migration inserts the active `debug_agent` row into `llm_configurations` (same provider and model as the coder), so the loop is not blocked on the Phase 6 admin dashboard that later edits it.
 - **Quota refund**: tokens consumed by a failed run are credited back per §2.5.
 
 ### 2.4 Database Schema (Supabase Postgres)
@@ -105,7 +108,7 @@ flowchart TD
 - Tables:
   1. `profiles`: `id` (UUID references `auth.users`), `email`, `role` (`'user'` | `'admin'`), `avatar_url`, `created_at`, `updated_at`.
   2. `games`: `id` (UUID), `user_id` (UUID references `profiles`), `title`, `description`, `genre`, `public_slug` (UNIQUE), `is_public` (BOOLEAN), `github_repo` (TEXT nullable), `current_version_id` (UUID nullable), `last_stable_version_id` (UUID nullable), `created_at`, `updated_at`.
-  3. `game_versions`: `id` (UUID), `game_id` (UUID references `games`), `version_number` (INT), `prompt` (TEXT), `spec` (JSONB), `asset_manifest` (JSONB), `source_code` (TEXT), `is_stable` (BOOLEAN), `error_log` (TEXT nullable), `created_at`.
+  3. `game_versions`: `id` (UUID), `game_id` (UUID references `games`), `version_number` (INT), `prompt` (TEXT), `spec` (JSONB), `asset_manifest` (JSONB), `source_code` (TEXT), `is_stable` (BOOLEAN), `error_log` (TEXT nullable), `debug_of_version_id` (UUID nullable references `game_versions`), `created_at`. A non-null `debug_of_version_id` marks a self-healing candidate and names the broken version it repairs; candidates are persisted non-promoted and are never offered as rollback targets.
   4. `llm_configurations`: `id` (UUID), `agent_type` (`'spec_agent'` | `'asset_mapper'` | `'coder_agent'` | `'debug_agent'`), `provider` (`'anthropic'` | `'openai'` | `'google'` | `'groq'`), `model_name` (TEXT), `api_key_override_encrypted` (TEXT nullable), `is_active` (BOOLEAN), `updated_at`.
   5. `integrations`: `id` (UUID), `user_id` (UUID references `profiles`), `provider` (`'github'`), `access_token_encrypted` (TEXT), `created_at`, `updated_at`, UNIQUE(`user_id`, `provider`).
   6. `game_messages`: `id` (UUID), `game_id` (UUID references `games`), `user_id` (UUID references `profiles`), `role` (`'user'` | `'assistant'` | `'system'`), `content` (TEXT), `agent_type` (nullable), `provider` (nullable), `model_used` (TEXT), `tokens_used` (INT), `execution_time_ms` (INT), `is_fallback` (BOOLEAN), `fallback_reason` (TEXT nullable), `created_at`. Append-only conversational transcript for the hot-patch chat, with per-turn cost and fallback telemetry.
@@ -180,13 +183,15 @@ Two independent mechanisms, both on Upstash Redis:
 - [ ] Retire the duplicated legacy columns (`slug`, `status`, `is_published`, `plays_count`, `thumbnail_url`, `change_summary`, `created_by_agent`, `is_fallback_used`) by renaming rather than copying, once the older writer is confirmed gone.
 
 ### Phase 5: Debug Agent & Automated Self-Healing
-- [ ] Build the 3-second grace period stability monitor and the stability write-back endpoint (idempotent by version id).
-- [ ] Implement `/api/debug/route.ts` with surgical fix prompts.
-- [ ] Wire the automatic 3x retry loop with automatic rollback to `last_stable_version_id`.
-- [ ] Wire token-budget refunds for failed and aborted runs.
+- [x] Add `game_versions.debug_of_version_id`, `persist_debug_candidate`, `commit_version_stability` and `reset_game_current_to_stable`, and seed the active `debug_agent` row in `llm_configurations`, in one migration.
+- [x] Build the client-side probation monitor (3-second visible, unpaused, error-free window; 10-second boot deadline) and the owner-checked `PATCH /api/games/:id/versions/:versionId/stability` write-back, idempotent by version id.
+- [x] Implement `POST /api/debug/route.ts`: one debug-agent call per attempt, a server-enforced three-attempt ceiling counted from persisted candidates, the fix boot-gated and persisted non-promoted (or as a source-less tombstone), and the pointer reset to `last_stable_version_id` (or `NULL`) before the model is even resolved.
+- [x] Wire the repair loop: boot the candidate, re-probate, commit on proof, and terminate after the third attempt.
+- [ ] Outstanding: exercise the browser probation and repair path end to end. The Playwright suite already has `GENERATION_FAKE` and a scene that throws on purpose, but it needs a dedicated E2E Supabase project and `.env.e2e.local` is absent, so it self-skips.
 
 ### Phase 6: Admin Portal, Quotas & Distribution
 - [ ] Implement the Upstash burst limiter (sliding window) and the separate, refundable daily token budget in raw `@upstash/redis`, with admin bypass.
+- [ ] Wire token-budget refunds for failed and aborted runs into the generation and patch lifecycles. Deferred out of Phase 5 deliberately: the budget this credits back does not exist until this phase, so the refund had neither an implementation nor a test.
 - [ ] Build `/admin` dashboard for model/provider selection and encrypted, write-only API key overrides.
 - [ ] Implement Standalone Single-File HTML (Phaser 3 inlined) and ZIP bundle generation.
 - [ ] Implement `/play/[slug]` public playable route with OpenGraph tags and auto-generated slugs.
@@ -222,5 +227,5 @@ Manual checks per phase:
 
   **Measured results — live pipeline (2026-09-11).** After the reconciliation, two real runs through the gateway wrote successfully. Run 1 (`gameId: null`, 31.5s): frames `run.started` → three `stage.started`/`stage.completed` pairs with cumulative `usage` → `run.completed{gameId, versionId, versionNumber:1}`; 8,289 input / 3,693 output tokens; spec "Meteor Barrage" with 4 entities; scene 163 lines. Twenty database invariants checked, all passing — `current_version_id` moved, `last_stable_version_id` stayed NULL, `is_stable = false` with `error_log IS NULL`, `public_slug` and the legacy `slug` both NULL for a new game, legacy `code` left unset, exactly two `game_messages` rows carrying `model_used`, `tokens_used` and `execution_time_ms`. Run 2 against the same game appended `version_number = 2`, proving the advisory-lock numbering. The scene was independently reviewed against the sandbox contract: defines `window.__MAIN_SCENE__ = MainScene`, `class MainScene extends Phaser.Scene`, `super("MainScene")`, prototype `preload`/`create`/`update(time)`, no arrow-function lifecycle fields, no import/export, no `eval` or `new Function`, no markdown fences, reads `assetManifest`, calls `soundFx.play`, balanced braces and parens, and it parses. Not verified: the SSE transport over HTTP, the disconnect path, and a real `SCENE_READY` boot.
 - **Phase 4**: no partial code is ever booted into the sandbox.
-- **Phase 5**: a forced runtime error triggers 3 retries and then rolls back to `last_stable_version_id`.
+- **Phase 5**: a forced runtime error (the Phase 2 failing fixture) triggers three repair attempts, each persisted as a non-promoted candidate, and immediately leaves `current_version_id` at `last_stable_version_id`; a first-ever version that fails instead lands on `current_version_id = NULL` with a regenerate prompt, and a reload does not re-boot it. `bun test` covers the loop in-process against a fake `LlmClient`: commit-on-proof, the three-attempt ceiling (a fourth call refused idempotently), duplicate and late stability callbacks, and a commit rejected after a superseding write.
 - **Phase 6**: a failed run's tokens are credited back and the burst limiter is unaffected.

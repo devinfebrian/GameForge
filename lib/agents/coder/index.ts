@@ -21,17 +21,29 @@ const CODER_TEMPERATURE = 0.4;
 const FENCE_PATTERN = /```(?:javascript|js)?[ \t]*\r?\n?([\s\S]*?)```/;
 
 /**
- * Strips a markdown fence if the model wrapped its answer in one. A literal ```
- * line is a syntax error the moment the Blob script is evaluated, so this must
- * run before the source is persisted.
+ * Removes a markdown fence if the model wrapped its answer in one, and returns
+ * the bare source — possibly empty. A literal ``` line is a syntax error the
+ * moment the Blob script is evaluated, so this must run before source is used.
+ *
+ * Separate from `normalizeSceneSource` because the debug agent must treat an
+ * empty answer as a failed *attempt* (a countable tombstone), not as a hard
+ * error that escapes before the attempt can be recorded.
+ */
+export function stripCodeFence(raw: string): string {
+  const fenced = FENCE_PATTERN.exec(raw);
+
+  return (fenced !== null ? fenced[1] : raw).trim();
+}
+
+/**
+ * Strips a markdown fence and refuses an empty result.
  *
  * This is the only inspection Phase 3 performs on the scene. Whether the source
- * actually defines `window.__MAIN_SCENE__` and parses is Phase 4's boot gate and
- * Phase 5's problem — a validated-but-unbooted scene is still persisted.
+ * actually defines `window.__MAIN_SCENE__` and parses is Phase 4's boot gate, not
+ * this function's concern — a validated-but-unbooted scene is still persisted.
  */
 export function normalizeSceneSource(raw: string): string {
-  const fenced = FENCE_PATTERN.exec(raw);
-  const code = (fenced !== null ? fenced[1] : raw).trim();
+  const code = stripCodeFence(raw);
 
   if (code.length === 0) {
     throw new GenerationError(
