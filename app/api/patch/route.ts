@@ -10,13 +10,8 @@ import {
   finishGenerationRun,
   type RunStatus,
 } from "@/lib/games/run-guard";
-import { createGatewayClient } from "@/lib/llm/chat-completions";
-import { GenerationError } from "@/lib/llm/errors";
-import { createFakeGatewayClient, FAKE_MODELS } from "@/lib/llm/fake-client";
-import { loadAgentModels } from "@/lib/llm/config";
-import { assertModelAvailable } from "@/lib/llm/models";
-import type { AgentModels, LlmClient } from "@/lib/llm/types";
 import { preStreamFailure } from "@/lib/pipeline/http-status";
+import { resolveLlmBootstrap } from "@/lib/pipeline/llm-bootstrap";
 import { runPatch } from "@/lib/pipeline/patch";
 import { persistGeneration } from "@/lib/pipeline/persist";
 import { createSseResponse } from "@/lib/pipeline/sse-stream";
@@ -28,8 +23,6 @@ export const dynamic = "force-dynamic";
 // /api/generate: the run slot, not the transport, is what bounds concurrency.
 export const maxDuration = 300;
 
-const MODEL_LIST_TIMEOUT_MS = 15_000;
-const MODEL_CALL_TIMEOUT_MS = 90_000;
 const INSTRUCTION_MAX_LENGTH = 2000;
 
 const patchRequestSchema = z.object({
@@ -76,54 +69,13 @@ export async function POST(request: Request): Promise<Response> {
     return preStreamFailure("game_not_found", "No editable version for this game.");
   }
 
-  const env = getServerEnv();
+  const bootstrap = await resolveLlmBootstrap(getServerEnv(), request.signal);
 
-  let client: LlmClient;
-  let models: AgentModels;
-
-  // See /api/generate: the fake skips model resolution entirely so a development
-  // or E2E run needs no credentials and no network, and getServerEnv refuses the
-  // flag under NODE_ENV=production.
-  if (env.generationFake) {
-    client = createFakeGatewayClient();
-    models = FAKE_MODELS;
-  } else {
-    const { anthropicApiKey: credential, anthropicBaseUrl: baseUrl } = env;
-
-    if (credential === null || baseUrl === null) {
-      return preStreamFailure(
-        "config_missing",
-        "ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL must both be set to enable game generation.",
-      );
-    }
-
-    try {
-      models = await loadAgentModels();
-
-      for (const model of new Set(Object.values(models))) {
-        await assertModelAvailable(baseUrl, credential, model, {
-          signal: request.signal,
-          timeoutMs: MODEL_LIST_TIMEOUT_MS,
-        });
-      }
-    } catch (error) {
-      if (request.signal.aborted) {
-        return preStreamFailure("aborted", "The request was cancelled.");
-      }
-
-      if (error instanceof GenerationError) {
-        return preStreamFailure(error.code, error.message);
-      }
-
-      throw error;
-    }
-
-    client = createGatewayClient({
-      baseUrl,
-      credential,
-      timeoutMs: MODEL_CALL_TIMEOUT_MS,
-    });
+  if (!bootstrap.ok) {
+    return bootstrap.response;
   }
+
+  const { client, models } = bootstrap;
 
   // One run slot per user, shared with /api/generate, so a patch and a
   // generation cannot overlap and race for games.current_version_id.

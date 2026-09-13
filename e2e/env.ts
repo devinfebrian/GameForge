@@ -36,6 +36,11 @@ function parseEnvFile(contents: string): Record<string, string> {
   return values;
 }
 
+/** A key that is absent and a key left blank are the same misconfiguration. */
+function nonEmpty(value: string | undefined): string | undefined {
+  return value === undefined || value.trim().length === 0 ? undefined : value;
+}
+
 /**
  * The end-to-end suite runs against its own Supabase project, from
  * `.env.e2e.local`, and never falls back to `.env.local`.
@@ -46,7 +51,9 @@ function parseEnvFile(contents: string): Record<string, string> {
  *
  * Returns null when the file is absent, which makes the config start no server
  * and the spec skip, so a machine without the file reports "skipped" rather than
- * failing or, worse, running somewhere it should not.
+ * failing or, worse, running somewhere it should not. A file that exists but
+ * leaves a required key blank is a setup error rather than a skip: the example
+ * ships empty values, so an unfilled copy must stop the run loudly.
  */
 export function loadE2EEnvironment(): E2EEnvironment | null {
   const path = resolve(process.cwd(), E2E_ENV_FILE);
@@ -56,9 +63,9 @@ export function loadE2EEnvironment(): E2EEnvironment | null {
   }
 
   const values = parseEnvFile(readFileSync(path, "utf8"));
-  const supabaseUrl = values.NEXT_PUBLIC_SUPABASE_URL;
-  const publishableKey = values.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  const serviceRoleKey = values.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = nonEmpty(values.NEXT_PUBLIC_SUPABASE_URL);
+  const publishableKey = nonEmpty(values.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
+  const serviceRoleKey = nonEmpty(values.SUPABASE_SERVICE_ROLE_KEY);
 
   if (
     supabaseUrl === undefined ||
@@ -74,8 +81,8 @@ export function loadE2EEnvironment(): E2EEnvironment | null {
     supabaseUrl,
     publishableKey,
     serviceRoleKey,
-    email: values.E2E_USER_EMAIL ?? "e2e@gameforge.test",
-    password: values.E2E_USER_PASSWORD ?? "e2e-password-1234",
+    email: nonEmpty(values.E2E_USER_EMAIL) ?? "e2e@gameforge.test",
+    password: nonEmpty(values.E2E_USER_PASSWORD) ?? "e2e-password-1234",
   };
 }
 

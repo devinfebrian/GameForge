@@ -27,9 +27,15 @@ const MAIN_SCENE_GLOBAL = /window\s*\.\s*__MAIN_SCENE__\s*=/;
  *
  * Constructing a function compiles without executing: the body runs never, and
  * no static initialiser inside it is evaluated either. That is what makes this a
- * parse check rather than an escape. It catches the one failure the frame cannot
- * diagnose — a Blob-script syntax error never executes, so the runner has no
- * phase to tag and the frame would simply hang at "booting".
+ * parse check rather than an escape.
+ *
+ * One boundary worth knowing: `new Function` parses a function body, which
+ * matches the classic-script grammar the runner's Blob script is parsed with
+ * except for constructs legal only inside a function — a top-level `return`
+ * being the realistic one. Such a source passes here and is then rejected by the
+ * browser, which the runner surfaces through its script `error` listener rather
+ * than hanging. Everything else, including a missing MainScene/global, is caught
+ * here with a reason the frame cannot give.
  */
 export function inspectSceneSource(code: string): SceneInspection {
   if (code.trim().length === 0) {

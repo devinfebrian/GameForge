@@ -71,14 +71,16 @@ test("generates a game, patches it, and rolls back a version", async ({ page }) 
   await expect(status).toContainText("running", { timeout: 60_000 });
 });
 
-test("refuses a second concurrent run", async ({ page }) => {
+test("disables submit while a run is streaming", async ({ page }) => {
   await page.goto("/studio/new");
   await page.getByLabel("Describe your game").fill("A game about waiting");
 
   const generate = page.getByRole("button", { name: "Generate" });
 
-  // The button is disabled while streaming, so the second click is what proves
-  // the UI guard; the server's 409 is covered by the unit tests.
+  // The UI guard: the button must not accept a second submit before React has
+  // re-rendered it. The server's 409 (beginGenerationRun returning null) is
+  // covered by lib/games/run-guard.test.ts and cannot be raced deterministically
+  // here — the fake pipeline finishes too fast to hold the slot open.
   await generate.click();
   await expect(generate).toBeDisabled();
 

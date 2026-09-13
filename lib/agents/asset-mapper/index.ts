@@ -126,7 +126,11 @@ export function projectLoadCodeAssets(
  * still come back with a partial — or empty — assignment. Taking that literally
  * would strip art from entities the model merely failed to mention, which reads
  * to the user as "my sprites disappeared after I asked for a speed change".
- * A new assignment always wins; silence preserves what was already there.
+ *
+ * A URL is an assignment and always wins. A null is not an assignment: it is
+ * what `resolveManifest` produces for every entity the mapping did not mention,
+ * so it never clears existing art — for a new entity it becomes "no art", and
+ * for an existing one the previous URL stands.
  */
 export function mergeManifests(
   base: ResolvedManifest,
