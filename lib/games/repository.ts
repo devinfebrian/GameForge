@@ -6,6 +6,7 @@ import {
   type ResolvedManifest,
 } from "@/lib/agents/asset-mapper/schema";
 import { gameSpecSchema, type GameSpec } from "@/lib/agents/spec/schema";
+import { buildPublicSlug, createSlugSuffix } from "@/lib/games/slug";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export interface OwnedGame {
@@ -128,6 +129,8 @@ const workspaceGameRowSchema = z.object({
   title: z.string(),
   description: z.string().nullable(),
   current_version_id: z.string().nullable(),
+  is_public: z.boolean(),
+  public_slug: z.string().nullable(),
 });
 
 export interface GameWorkspace {
@@ -135,6 +138,10 @@ export interface GameWorkspace {
   readonly title: string;
   readonly description: string | null;
   readonly currentVersionId: string | null;
+  /** Whether `/play/[slug]` is currently serving this game. */
+  readonly isPublic: boolean;
+  /** Assigned on first publish and reserved even after unpublishing. */
+  readonly publicSlug: string | null;
   /** Newest first, for the timeline. */
   readonly versions: ReadonlyArray<VersionSummary>;
   /** Oldest first, ordered by the monotonic `seq` rather than `created_at`. */
@@ -156,7 +163,7 @@ export async function getGameWorkspace(
 
   const { data, error } = await admin
     .from("games")
-    .select("id, title, description, current_version_id")
+    .select("id, title, description, current_version_id, is_public, public_slug")
     .eq("id", gameId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -203,6 +210,8 @@ export async function getGameWorkspace(
     title: game.title,
     description: game.description,
     currentVersionId: game.current_version_id,
+    isPublic: game.is_public,
+    publicSlug: game.public_slug,
     versions: (versionsResult.data ?? []).map((raw) => {
       const row = versionSummaryRowSchema.parse(raw);
 
@@ -611,4 +620,142 @@ export async function commitVersionStability(options: {
   }
 
   throw new Error(`Failed to confirm stability for ${options.versionId}: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Publishing (Phase 7)
+// ---------------------------------------------------------------------------
+
+export interface GamePublication {
+  readonly isPublic: boolean;
+  readonly publicSlug: string | null;
+}
+
+export type VisibilityResult =
+  | { readonly kind: "ok"; readonly publication: GamePublication }
+  | { readonly kind: "not_found" };
+
+const visibilityRowSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  is_public: z.boolean(),
+  public_slug: z.string().nullable(),
+});
+
+/**
+ * How many suffixes to draw before giving up on finding a free one.
+ *
+ * The suffix space is 28^4 ≈ 614k per title and the collision is caught by the
+ * unique index, so a retry here is a rare event, not a hot path. The bound
+ * exists so a pathological title or a bad index cannot spin forever.
+ */
+const SLUG_COLLISION_RETRIES = 5;
+
+const UNIQUE_VIOLATION = "23505";
+
+/**
+ * Publishes or unpublishes a game.
+ *
+ * Unpublishing only clears `is_public`: the slug stays on the row, so the same
+ * link works again on republish and no other game can claim it meanwhile. That
+ * is why there is no slug-clearing branch here.
+ *
+ * The slug is assigned exactly once, on the first publish. It is not derived
+ * from the title again on later publishes, because the title can change and a
+ * moved goalpost would silently break every link that was already shared.
+ *
+ * Plain SQL rather than a Postgres function: the only correctness requirement is
+ * that the slug is unique, and `games_public_slug_key` already enforces that.
+ * Generating the slug in TypeScript keeps the alphabet and the title rules in a
+ * pure, tested function instead of in a `SECURITY INVOKER` function that would
+ * need its own migration and advisor review.
+ *
+ * This does not require a version to exist. A game whose first version failed is
+ * left with `current_version_id = NULL`, and publishing it makes `/play` answer
+ * 404 until a version lands — which is a better outcome than refusing the
+ * publish and leaving the user with no way to see the share link.
+ */
+export async function setGameVisibility(options: {
+  readonly gameId: string;
+  readonly userId: string;
+  readonly isPublic: boolean;
+}): Promise<VisibilityResult> {
+  const { gameId, userId, isPublic } = options;
+  const admin = createAdminClient();
+
+  const { data: gameData, error: gameError } = await admin
+    .from("games")
+    .select("id, title, is_public, public_slug")
+    .eq("id", gameId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (gameError !== null) {
+    throw new Error(`Failed to load game ${gameId}: ${gameError.message}`);
+  }
+
+  if (gameData === null) {
+    return { kind: "not_found" };
+  }
+
+  const game = visibilityRowSchema.parse(gameData);
+
+  if (!isPublic) {
+    const { data, error } = await admin
+      .from("games")
+      .update({ is_public: false })
+      .eq("id", gameId)
+      .eq("user_id", userId)
+      .select("is_public, public_slug")
+      .maybeSingle();
+
+    if (error !== null) {
+      throw new Error(`Failed to unpublish ${gameId}: ${error.message}`);
+    }
+
+    if (data === null) {
+      return { kind: "not_found" };
+    }
+
+    return { kind: "ok", publication: { isPublic: false, publicSlug: game.public_slug } };
+  }
+
+  // Republishing keeps the slug the game already reserved.
+  if (game.public_slug !== null) {
+    const { error } = await admin
+      .from("games")
+      .update({ is_public: true })
+      .eq("id", gameId)
+      .eq("user_id", userId);
+
+    if (error !== null) {
+      throw new Error(`Failed to publish ${gameId}: ${error.message}`);
+    }
+
+    return { kind: "ok", publication: { isPublic: true, publicSlug: game.public_slug } };
+  }
+
+  for (let attempt = 0; attempt < SLUG_COLLISION_RETRIES; attempt += 1) {
+    const candidate = buildPublicSlug(game.title, createSlugSuffix());
+
+    const { error } = await admin
+      .from("games")
+      .update({ is_public: true, public_slug: candidate })
+      .eq("id", gameId)
+      .eq("user_id", userId);
+
+    if (error === null) {
+      return { kind: "ok", publication: { isPublic: true, publicSlug: candidate } };
+    }
+
+    // Anything other than a slug collision is a real failure and must not be
+    // retried into a five-times-longer error report.
+    if (error.code !== UNIQUE_VIOLATION) {
+      throw new Error(`Failed to publish ${gameId}: ${error.message}`);
+    }
+  }
+
+  throw new Error(
+    `Failed to publish ${gameId}: could not allocate a unique public slug.`,
+  );
 }

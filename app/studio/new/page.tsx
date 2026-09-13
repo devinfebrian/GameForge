@@ -31,6 +31,8 @@ export default async function NewGamePage() {
       gameId={null}
       title={null}
       currentVersionId={null}
+      isPublic={false}
+      publicSlug={null}
       versions={[]}
       messages={[]}
       quota={quota}

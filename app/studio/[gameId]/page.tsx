@@ -47,6 +47,8 @@ export default async function StudioGamePage({
       gameId={workspace.id}
       title={workspace.title}
       currentVersionId={workspace.currentVersionId}
+      isPublic={workspace.isPublic}
+      publicSlug={workspace.publicSlug}
       versions={workspace.versions}
       messages={workspace.messages}
       quota={quota}
