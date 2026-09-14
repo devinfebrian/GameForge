@@ -1,13 +1,9 @@
 /**
- * The Phaser game configuration, mirrored from `public/sandbox/runner.js`.
+ * The canonical Phaser game configuration used across standalone exports and
+ * isolated preview documents.
  *
- * `lib/export/sandbox-config.test.ts` reads that file and fails if these values
- * drift, because the two cannot share a module: the runner is served to an
- * opaque-origin frame as plain JavaScript and has no bundler or import map.
- *
- * Only the values are shared. The runner wraps the scene in `instrumentScene`
- * for phase tagging and probation; an export has no bridge and no probation, so
- * it boots the raw scene directly.
+ * It provides standard viewport sizing, arcade physics, and background styling
+ * shared by all generated games.
  */
 export const SANDBOX_GAME_CONFIG = {
   backgroundColor: "#0b1020",

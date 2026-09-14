@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { cache } from "react";
 import { getPublicEnv } from "@/lib/env/public";
 import { findPublicGameBySlug } from "@/lib/games/public-repository";
+import { buildPublicPreviewUrl } from "@/lib/preview/url";
 import { PlayFrame } from "./_components/PlayFrame";
 
 interface PlayPageProps {
@@ -72,11 +73,7 @@ export default async function PlayPage({ params }: PlayPageProps) {
     <main className="flex flex-1 flex-col gap-4 p-6">
       <h1 className="text-2xl font-semibold">{game.title}</h1>
 
-      <PlayFrame
-        title={game.title}
-        sourceCode={game.sourceCode}
-        assetManifest={game.assetManifest}
-      />
+      <PlayFrame title={game.title} previewUrl={buildPublicPreviewUrl(game.versionId)} />
 
       {game.description === null ? null : (
         <p className="max-w-prose text-sm opacity-80">{game.description}</p>

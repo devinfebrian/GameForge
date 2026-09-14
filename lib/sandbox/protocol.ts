@@ -2,8 +2,9 @@ import { z } from "zod";
 
 export const PROTOCOL_VERSION = 1;
 
+// No LOAD_CODE: the served preview document carries its own scene, so the parent
+// only ever drives an already-loaded game.
 export const PARENT_TO_FRAME_TYPES = [
-  "LOAD_CODE",
   "PAUSE_GAME",
   "RESUME_GAME",
   "RESTART_GAME",
@@ -22,14 +23,6 @@ const CONSOLE_LOG_LEVELS = ["log", "info", "warn", "error"] as const;
 
 export type ConsoleLogLevel = (typeof CONSOLE_LOG_LEVELS)[number];
 
-const loadCodeSchema = z.object({
-  type: z.literal("LOAD_CODE"),
-  protocolVersion: z.number().int().positive(),
-  code: z.string().min(1),
-  // Logical asset name -> absolute URL. The frame never reads the catalog.
-  assetManifest: z.record(z.string(), z.string()),
-});
-
 const pauseGameSchema = z.object({ type: z.literal("PAUSE_GAME") });
 const resumeGameSchema = z.object({ type: z.literal("RESUME_GAME") });
 const restartGameSchema = z.object({ type: z.literal("RESTART_GAME") });
@@ -42,7 +35,6 @@ const setMutedSchema = z.object({
 });
 
 export const parentToFrameMessageSchema = z.discriminatedUnion("type", [
-  loadCodeSchema,
   pauseGameSchema,
   resumeGameSchema,
   restartGameSchema,

@@ -6,11 +6,10 @@ import {
   reduceSandboxStatus,
   type SandboxStatus,
 } from "@/lib/sandbox/bridge";
-import {
-  PROTOCOL_VERSION,
-  type ConsoleLogLevel,
-  type ParentToFrameMessage,
-  type RuntimeErrorMessage,
+import type {
+  ConsoleLogLevel,
+  ParentToFrameMessage,
+  RuntimeErrorMessage,
 } from "@/lib/sandbox/protocol";
 
 const MAX_LOG_ENTRIES = 100;
@@ -47,11 +46,18 @@ export interface SandboxBridge {
    * the same tick and the assertion would pass vacuously.
    */
   readonly acceptedMessagesRef: RefObject<number>;
+  /**
+   * The isolated preview URL the frame is showing, or null while the sandbox
+   * frame is in use. The frame renders from this, so setting it navigates it.
+   */
+  readonly previewUrl: string | null;
   readonly handleFrameLoad: () => void;
-  readonly loadCode: (
-    code: string,
-    assetManifest: Record<string, string>,
-  ) => void;
+  /**
+   * Boots a served preview document by URL. The scene travels with the document,
+   * so nothing is posted — but the boot watchdog still arms, because a page that
+   * never posts SCENE_READY is indistinguishable from a hang.
+   */
+  readonly loadPreview: (url: string) => void;
   readonly pause: () => void;
   readonly resume: () => void;
   readonly restart: () => void;
@@ -68,6 +74,7 @@ export function useSandboxBridge(): SandboxBridge {
   const statusRef = useRef<SandboxStatus>("idle");
 
   const [ready, setReady] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<SandboxStatus>("idle");
   const [lastError, setLastError] = useState<RuntimeErrorMessage | null>(null);
   const [bootTimedOut, setBootTimedOut] = useState(false);
@@ -166,19 +173,14 @@ export function useSandboxBridge(): SandboxBridge {
     send({ type: "SET_MUTED", muted: mutedRef.current });
   }, [send]);
 
-  const loadCode = useCallback<SandboxBridge["loadCode"]>(
-    (code, assetManifest) => {
+  const loadPreview = useCallback<SandboxBridge["loadPreview"]>(
+    (url) => {
       setLastError(null);
       setStatus("booting");
+      setPreviewUrl(url);
       startBootTimer();
-      send({
-        type: "LOAD_CODE",
-        protocolVersion: PROTOCOL_VERSION,
-        code,
-        assetManifest,
-      });
     },
-    [send, startBootTimer],
+    [startBootTimer],
   );
 
   // While idle there is no game in the frame to control, and no SCENE_READY
@@ -224,8 +226,9 @@ export function useSandboxBridge(): SandboxBridge {
     logs,
     muted,
     acceptedMessagesRef,
+    previewUrl,
     handleFrameLoad,
-    loadCode,
+    loadPreview,
     pause,
     resume,
     restart,

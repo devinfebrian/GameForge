@@ -4,30 +4,31 @@ export interface SandboxCspOrigins {
 }
 
 /**
- * The sandbox runs with `sandbox="allow-scripts"` and no `allow-same-origin`, so
- * its documents have an opaque origin. Every source expression must therefore be
- * an explicit origin: CSP's `'self'` keyword resolves against the opaque origin
- * and matches nothing in WebKit, which blanks the frame on Safari and iOS.
+ * The policy for a served preview document.
+ *
+ * Isolation here comes from the origin, not the sandbox attribute, so `'self'`
+ * resolves normally and no `Access-Control-Allow-Origin: *` is needed. The page
+ * inlines its scene, agent and boot tail, so `'unsafe-inline'` is required; this
+ * origin holds no credentials, which makes the policy's real job locking egress
+ * (`connect-src`) and framing (`frame-ancestors`) rather than caging the artifact
+ * — the artifact is the code we intend to run.
  */
-export function buildSandboxCsp({
+export function buildPreviewCsp({
   appOrigin,
   assetOrigin,
 }: SandboxCspOrigins): string {
   return [
     "default-src 'none'",
-    // blob: is required because LOAD_CODE injects the scene as a Blob URL script.
-    `script-src ${appOrigin} blob:`,
+    "script-src 'self' 'unsafe-inline'",
     // Phaser writes inline styles onto its canvas and container.
     "style-src 'unsafe-inline'",
     `img-src ${assetOrigin} data: blob:`,
-    // jsfxr renders each sound to a WAV data URI and plays it through <audio>.
     `media-src ${assetOrigin} data: blob:`,
     `connect-src ${assetOrigin}`,
     "form-action 'none'",
     "base-uri 'none'",
     "object-src 'none'",
     "worker-src 'none'",
-    // Only effective as a header, which is why this is not a meta tag.
     `frame-ancestors ${appOrigin}`,
   ].join("; ");
 }
