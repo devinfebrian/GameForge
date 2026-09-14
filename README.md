@@ -69,14 +69,13 @@ Windows any other way. Not verifiable headlessly, and therefore still manual:
 audible mute, actual fullscreen, and audio output.
 
 
-## Sandbox and assets
+## Preview and assets
 
 `bun install` copies the browser builds of Phaser and jsfxr into
 `public/sandbox/vendor/` via `postinstall`. That directory is generated and is not
-committed. The sandbox frame is a plain static document at `/sandbox/index.html`,
-embedded with `sandbox="allow-scripts"` and no `allow-same-origin` — omitting the
-latter is what gives it an opaque origin. Its CSP is sent as a header from
-`next.config.ts`.
+committed. Previews are served as isolated documents from a dedicated origin
+(`NEXT_PUBLIC_PREVIEW_ORIGIN`, e.g. `http://127.0.0.1:3000` in local development)
+at `/preview/[versionId]`, protected by their own CSP header emitted from `next.config.ts`.
 
 Phaser is pinned to `~3.90.0` on purpose: npm's `latest` tag is 4.x, and Phaser 4 is
 not a drop-in replacement. `scripts/copy-vendor.ts` refuses to vendor a 4.x build.
@@ -90,8 +89,7 @@ Sprites are deliberately not committed. To rebuild the asset bucket from scratch
    one gets.
 3. `bun run assets:sync` uploads them and regenerates `lib/assets/catalog.json`.
 4. `bun run assets:check` verifies catalog drift and that every object is served with
-   `Access-Control-Allow-Origin: *` — required, because the frame requests assets from
-   an opaque origin.
+   `Access-Control-Allow-Origin: *`.
 
 The bucket is declared in `supabase/config.toml` under `[storage.buckets."game-assets"]`,
 but that declaration only applies to local development (`supabase start`) and Supabase
@@ -103,8 +101,6 @@ therefore creates the bucket itself with the service-role key, mirroring the dec
 properties.
 
 Be aware that `supabase config push` sends the whole `config.toml`, `[auth]` included.
-
-`/dev/sandbox` is a development-only harness for the postMessage bridge.
 
 ## Architecture
 

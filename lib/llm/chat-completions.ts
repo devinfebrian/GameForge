@@ -36,7 +36,11 @@ export interface GatewayOptions {
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_RETRY_DELAY_MS = 500;
-const MAX_ATTEMPTS = 2;
+// A transient connect failure to this gateway was observed to outlive a single
+// 500ms retry, surfacing to the user as a bare transport error. Three attempts
+// with a widening gap ride out a short blip; a real outage still fails after
+// them, and every attempt stays bounded by the per-request timeout.
+const MAX_ATTEMPTS = 3;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -77,6 +81,29 @@ export function extractText(body: ChatCompletionResponse): string {
 
   // `null` is the normal value on a tool-call turn, not an error.
   return typeof content === "string" ? content : "";
+}
+
+/**
+ * A completion that stopped at `max_tokens` is not a finished answer.
+ *
+ * The gateway fronts a thinking model, and the ceiling covers hidden reasoning
+ * as well as visible text, so the coder's scene can be cut off mid-statement and
+ * still arrive as a normal 200 with non-empty `content`. Persisting that stores a
+ * file that cannot parse. `generateStructured` already surfaces truncation via
+ * its JSON parse; a text answer has no such backstop, so it is reported here as
+ * a transport failure, like any other payload we received but cannot trust.
+ */
+function assertComplete(
+  body: ChatCompletionResponse,
+  usage: LlmUsage,
+): void {
+  if (body.choices?.[0]?.finish_reason === "length") {
+    throw new GenerationError(
+      "provider_error",
+      "The model's answer was cut off at its output limit before it finished.",
+      { usage },
+    );
+  }
 }
 
 export function extractToolArguments(
@@ -135,10 +162,22 @@ function gatewayError(status: number, detail: string): GenerationError {
   );
 }
 
-function describeNetworkFailure(reason: string): GenerationError {
-  return new GenerationError("provider_error", "The gateway request failed.", {
-    cause: reason,
-  });
+/**
+ * A transport failure, named for what it actually is. A 200 whose body will not
+ * parse is not a network problem, and reporting both as one message (as this
+ * once did) points whoever is debugging at the wrong layer. The provider's own
+ * text stays in `cause`, out of the user-facing message.
+ */
+function describeNetworkFailure(error: unknown): GenerationError {
+  const reason =
+    error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+
+  const message =
+    error instanceof SyntaxError
+      ? "The model gateway returned a response that was not valid JSON."
+      : "The model gateway could not be reached.";
+
+  return new GenerationError("provider_error", message, { cause: reason });
 }
 
 function describeTimeout(failureHint: string, timeoutMs: number): GenerationError {
@@ -243,7 +282,7 @@ async function requestJson(
       // Only rate limits and server faults are worth a second attempt; a 401 or
       // a 400 will fail identically every time.
       if ((response.status === 429 || response.status >= 500) && attempt < MAX_ATTEMPTS) {
-        await sleep(options.retryDelayMs);
+        await sleep(options.retryDelayMs * attempt);
         continue;
       }
 
@@ -263,10 +302,10 @@ async function requestJson(
         throw error instanceof Error ? error : describeNetworkFailure(String(error));
       }
 
-      lastError = describeNetworkFailure(error instanceof Error ? error.message : String(error));
+      lastError = describeNetworkFailure(error);
 
       if (attempt < MAX_ATTEMPTS) {
-        await sleep(options.retryDelayMs);
+        await sleep(options.retryDelayMs * attempt);
         continue;
       }
 
@@ -279,6 +318,19 @@ async function requestJson(
   throw lastError;
 }
 
+/**
+ * The gateway's model reasons by default, and that hidden reasoning is billed
+ * against the same output ceiling as the visible answer. Measured on the coder's
+ * scene prompt, the default consumed the entire cap and returned 31 characters
+ * of code, so a whole-file answer was impossible and the scene arrived
+ * truncated. The gateway ignores `thinking: { type: "disabled" }` but honours
+ * `reasoning_effort`; "low" still plans, yet leaves room for the answer.
+ *
+ * Applied to every call because the ceiling is shared on all of them, tool-call
+ * turns included, and a starved agent fails the same way a truncated one does.
+ */
+const REASONING_EFFORT = "low";
+
 function chatPayload(request: {
   readonly model: string;
   readonly system: string;
@@ -290,6 +342,7 @@ function chatPayload(request: {
     model: request.model,
     max_tokens: request.maxTokens,
     temperature: request.temperature,
+    reasoning_effort: REASONING_EFFORT,
     messages: [
       { role: "system", content: request.system },
       { role: "user", content: request.user },
@@ -359,6 +412,8 @@ export function createGatewayClient(options: GatewayOptions): LlmClient {
 
     async generateText(request: TextRequest): Promise<TextResult> {
       const { body, usage } = await post(chatPayload(request), request.signal);
+
+      assertComplete(body, usage);
 
       return { text: extractText(body), usage };
     },

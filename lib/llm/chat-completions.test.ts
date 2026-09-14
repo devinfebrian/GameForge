@@ -8,7 +8,7 @@ import {
   parseUsage,
 } from "@/lib/llm/chat-completions";
 import { GenerationError } from "@/lib/llm/errors";
-import type { StructuredRequest } from "@/lib/llm/types";
+import type { StructuredRequest, TextRequest } from "@/lib/llm/types";
 
 const BASE_URL = "https://gateway.test/proj";
 
@@ -158,6 +158,10 @@ describe("createGatewayClient — structured", () => {
     expect(tools[0].function.parameters).toMatchObject({ type: "object" });
 
     expect(payload?.tool_choice).toEqual({ type: "function", function: { name: "submit_probe" } });
+
+    // The gateway's default reasoning consumes the shared output ceiling and
+    // starves the answer; every call must ask for less of it.
+    expect(payload?.reasoning_effort).toBe("low");
   });
 
   test("parses the arguments string and reports usage", async () => {
@@ -282,24 +286,127 @@ describe("createGatewayClient — failures", () => {
       expect((error as GenerationError).message).toContain("timed out");
     }
   });
+
+  // A connect blip to this gateway was observed to outlive a single 500ms retry,
+  // so a second attempt is not enough on its own.
+  test("rides out a transient connection failure", async () => {
+    let calls = 0;
+    const flaky = (async () => {
+      calls += 1;
+
+      if (calls === 1) {
+        throw new Error("Unable to connect. Is the computer able to access the url?");
+      }
+
+      return new Response(JSON.stringify(completion('{"title":"Pixel Hopper"}')), { status: 200 });
+    }) as unknown as typeof fetch;
+    const client = createGatewayClient({
+      baseUrl: BASE_URL,
+      credential: "jwt",
+      fetchImpl: flaky,
+      retryDelayMs: 0,
+    });
+
+    const result = await client.generateStructured<{ title: string }>(structuredRequest());
+
+    expect(result.data).toEqual({ title: "Pixel Hopper" });
+    expect(calls).toBe(2);
+  });
+
+  test("reports an unreachable gateway rather than a generic failure", async () => {
+    const down = (async () => {
+      throw new Error("Unable to connect. Is the computer able to access the url?");
+    }) as unknown as typeof fetch;
+    const client = createGatewayClient({
+      baseUrl: BASE_URL,
+      credential: "jwt",
+      fetchImpl: down,
+      retryDelayMs: 0,
+    });
+
+    try {
+      await client.generateStructured(structuredRequest());
+      throw new Error("expected generateStructured to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(GenerationError);
+      expect((error as GenerationError).message).toContain("could not be reached");
+    }
+  });
+
+  // A 200 whose body will not parse is a different failure from an unreachable
+  // host, and the message must not send debugging toward the network.
+  test("names an unparseable gateway response distinctly", async () => {
+    const htmlPage = (async () =>
+      new Response("<!doctype html><html><body>nope</body></html>", {
+        status: 200,
+      })) as unknown as typeof fetch;
+    const client = createGatewayClient({
+      baseUrl: BASE_URL,
+      credential: "jwt",
+      fetchImpl: htmlPage,
+      retryDelayMs: 0,
+    });
+
+    try {
+      await client.generateStructured(structuredRequest());
+      throw new Error("expected generateStructured to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(GenerationError);
+      expect((error as GenerationError).message).toContain("not valid JSON");
+    }
+  });
 });
 
 describe("createGatewayClient — text", () => {
+  function textRequest(overrides: Partial<TextRequest> = {}): TextRequest {
+    return {
+      model: "claude-sonnet-5",
+      system: "sys",
+      user: "usr",
+      maxTokens: 16_000,
+      temperature: 0.4,
+      signal: new AbortController().signal,
+      ...overrides,
+    };
+  }
+
   test("returns the assistant text for the coder", async () => {
     const { calls, impl } = stubFetch([{ status: 200, body: completion(undefined, "class MainScene {}") }]);
     const client = createGatewayClient({ baseUrl: BASE_URL, credential: "jwt", fetchImpl: impl });
 
-    const result = await client.generateText({
-      model: "claude-sonnet-5",
-      system: "sys",
-      user: "usr",
-      maxTokens: 8192,
-      temperature: 0.4,
-      signal: new AbortController().signal,
-    });
+    const result = await client.generateText(textRequest());
 
     expect(result.text).toBe("class MainScene {}");
     expect(calls[0].body?.tools).toBeUndefined();
+  });
+
+  // The gateway runs a thinking model, so max_tokens covers hidden reasoning as
+  // well as the answer. A truncated scene still arrives as a 200 with non-empty
+  // content, and persisting it stores a file that cannot parse. Truncation must
+  // be a transport failure, not a silently accepted answer.
+  test("reports a length-truncated answer as a provider error", async () => {
+    const truncated = {
+      choices: [
+        { message: { content: "class MainScene { constructor() {" }, finish_reason: "length" },
+      ],
+      usage: { prompt_tokens: 100, completion_tokens: 16_000, output_tokens: 16_000 },
+    };
+    const { impl } = stubFetch([{ status: 200, body: truncated }]);
+    const client = createGatewayClient({ baseUrl: BASE_URL, credential: "jwt", fetchImpl: impl });
+
+    try {
+      await client.generateText(textRequest());
+      throw new Error("expected generateText to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(GenerationError);
+      expect((error as GenerationError).code).toBe("provider_error");
+      // The provider billed for the truncated answer, so the run must still
+      // charge it.
+      expect((error as GenerationError).usage).toEqual({
+        inputTokens: 100,
+        outputTokens: 16_000,
+      });
+    }
   });
 });
 

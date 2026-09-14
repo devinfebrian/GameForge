@@ -297,6 +297,53 @@ export async function findOwnedVersion(options: {
   };
 }
 
+/** The version row plus the publish state of its game. */
+export interface PreviewVersionSnapshot extends OwnedVersionSnapshot {
+  /** A published game is served to anyone; a draft needs the signed token. */
+  readonly isPublic: boolean;
+}
+
+const previewVersionRowSchema = versionSnapshotRowSchema.extend({
+  games: z.object({ is_public: z.boolean() }).nullable(),
+});
+
+/**
+ * Resolves a version by id alone, for the isolated preview.
+ *
+ * There is no user to match against: the request arrives from the preview origin
+ * and carries no session cookie. Authorization is either the signed preview
+ * token or the parent game being published — both checked by the caller, which is
+ * why the publish state is returned here. Version ids must never be treated as
+ * authority on their own; do not reuse this for an authenticated surface.
+ */
+export async function findVersionForPreview(
+  versionId: string,
+): Promise<PreviewVersionSnapshot | null> {
+  const { data, error } = await createAdminClient()
+    .from("game_versions")
+    .select("id, version_number, source_code, asset_manifest, games!game_id(is_public)")
+    .eq("id", versionId)
+    .maybeSingle();
+
+  if (error !== null) {
+    throw new Error(`Failed to load version ${versionId}: ${error.message}`);
+  }
+
+  if (data === null) {
+    return null;
+  }
+
+  const row = previewVersionRowSchema.parse(data);
+
+  return {
+    id: row.id,
+    versionNumber: row.version_number,
+    sourceCode: row.source_code,
+    manifest: resolvedManifestSchema.parse(row.asset_manifest),
+    isPublic: row.games?.is_public === true,
+  };
+}
+
 const patchBaseRowSchema = z.object({
   id: z.string(),
   spec: z.unknown(),

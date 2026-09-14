@@ -96,6 +96,12 @@ describe("buildCoderSystemPrompt", () => {
     expect(prompt).toContain("No eval");
   });
 
+  // The opaque-origin frame has no storage, so a scene that reaches for it dies
+  // during create() with a SecurityError.
+  test("forbids origin storage the sandbox cannot provide", () => {
+    expect(prompt).toContain("No localStorage");
+  });
+
   test("names the real canvas dimensions", () => {
     expect(prompt).toContain("480");
     expect(prompt).toContain("320");

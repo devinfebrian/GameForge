@@ -5,12 +5,6 @@ import {
   frameToParentMessageSchema,
   parentToFrameMessageSchema,
 } from "@/lib/sandbox/protocol";
-// The frame has no bundler and cannot import the TypeScript module, so it keeps a
-// plain-JS mirror. These tests are the only thing preventing silent drift.
-import {
-  FRAME_TO_PARENT_TYPES as MIRROR_FRAME_TO_PARENT_TYPES,
-  PARENT_TO_FRAME_TYPES as MIRROR_PARENT_TO_FRAME_TYPES,
-} from "../../public/sandbox/protocol.js";
 
 const acceptsFrame = (raw: unknown): boolean =>
   frameToParentMessageSchema.safeParse(raw).success;
@@ -19,12 +13,22 @@ const acceptsParent = (raw: unknown): boolean =>
   parentToFrameMessageSchema.safeParse(raw).success;
 
 describe("sandbox protocol contract", () => {
-  test("frame-to-parent message types match the sandbox mirror", () => {
-    expect([...MIRROR_FRAME_TO_PARENT_TYPES]).toEqual([...FRAME_TO_PARENT_TYPES]);
+  test("frame-to-parent message types match the expected contract", () => {
+    expect([...FRAME_TO_PARENT_TYPES]).toEqual([
+      "SCENE_READY",
+      "HEARTBEAT",
+      "CONSOLE_LOG",
+      "RUNTIME_ERROR",
+    ]);
   });
 
-  test("parent-to-frame message types match the sandbox mirror", () => {
-    expect([...MIRROR_PARENT_TO_FRAME_TYPES]).toEqual([...PARENT_TO_FRAME_TYPES]);
+  test("parent-to-frame message types match the expected contract", () => {
+    expect([...PARENT_TO_FRAME_TYPES]).toEqual([
+      "PAUSE_GAME",
+      "RESUME_GAME",
+      "RESTART_GAME",
+      "SET_MUTED",
+    ]);
   });
 
   test("neither side declares an empty type list", () => {
@@ -36,6 +40,7 @@ describe("sandbox protocol contract", () => {
 describe("frameToParentMessageSchema", () => {
   test("accepts a well-formed message", () => {
     expect(acceptsFrame({ type: "HEARTBEAT", frame: 3 })).toBe(true);
+    expect(acceptsFrame({ type: "SCENE_READY", protocolVersion: 1 })).toBe(true);
   });
 
   test("rejects an unknown message type", () => {
@@ -52,27 +57,10 @@ describe("frameToParentMessageSchema", () => {
 });
 
 describe("parentToFrameMessageSchema", () => {
-  const base = {
-    type: "LOAD_CODE",
-    protocolVersion: 1,
-    code: "window.__MAIN_SCENE__ = class {};",
-  };
-
-  test("accepts LOAD_CODE with an asset manifest", () => {
-    expect(
-      acceptsParent({
-        ...base,
-        assetManifest: { player: "https://example.supabase.co/x.png" },
-      }),
-    ).toBe(true);
-  });
-
-  test("rejects LOAD_CODE without an asset manifest", () => {
-    expect(acceptsParent(base)).toBe(false);
-  });
-
-  test("rejects an empty code payload", () => {
-    expect(acceptsParent({ ...base, code: "", assetManifest: {} })).toBe(false);
+  test("accepts game control commands", () => {
+    expect(acceptsParent({ type: "PAUSE_GAME" })).toBe(true);
+    expect(acceptsParent({ type: "RESUME_GAME" })).toBe(true);
+    expect(acceptsParent({ type: "RESTART_GAME" })).toBe(true);
   });
 
   test("accepts SET_MUTED and requires a real boolean", () => {
@@ -80,5 +68,11 @@ describe("parentToFrameMessageSchema", () => {
     expect(acceptsParent({ type: "SET_MUTED", muted: false })).toBe(true);
     expect(acceptsParent({ type: "SET_MUTED", muted: "true" })).toBe(false);
     expect(acceptsParent({ type: "SET_MUTED" })).toBe(false);
+  });
+
+  test("rejects unknown commands or malformed payloads", () => {
+    expect(acceptsParent({ type: "LOAD_CODE" })).toBe(false);
+    expect(acceptsParent({ type: "UNKNOWN_COMMAND" })).toBe(false);
+    expect(acceptsParent(null)).toBe(false);
   });
 });

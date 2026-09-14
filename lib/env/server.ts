@@ -25,6 +25,12 @@ const serverEnvSchema = z.object({
       (value) => value === undefined || Buffer.from(value, "base64").length === 32,
       { error: "INTEGRATION_ENCRYPTION_KEY must be a base64-encoded 32-byte key." },
     ),
+  // Signs the short-lived token in an isolated preview URL. Optional in
+  // development: with no secret the preview route only serves outside production,
+  // so a local run needs nothing. In production it is required, because a
+  // cross-origin preview frame carries no session cookie and the token is the
+  // only thing standing between a version id and another user's source.
+  PREVIEW_TOKEN_SECRET: z.string().min(1).optional(),
   // Tokens per user per UTC day. Env-overridable because the ceiling is policy,
   // not schema, and should not need a code change to tune.
   DAILY_TOKEN_BUDGET: z.coerce.number().int().positive().default(250_000),
@@ -39,6 +45,7 @@ export interface ServerEnv {
   readonly anthropicBaseUrl: string | null;
   readonly generationFake: boolean;
   readonly integrationEncryptionKey: string | null;
+  readonly previewTokenSecret: string | null;
   readonly dailyTokenBudget: number;
   readonly runBurstPerMinute: number;
 }
@@ -85,6 +92,7 @@ export function getServerEnv(): ServerEnv {
       ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
       GENERATION_FAKE: process.env.GENERATION_FAKE,
       INTEGRATION_ENCRYPTION_KEY: process.env.INTEGRATION_ENCRYPTION_KEY,
+      PREVIEW_TOKEN_SECRET: process.env.PREVIEW_TOKEN_SECRET,
       DAILY_TOKEN_BUDGET: process.env.DAILY_TOKEN_BUDGET,
       RUN_BURST_PER_MINUTE: process.env.RUN_BURST_PER_MINUTE,
     }),
@@ -129,6 +137,7 @@ export function getServerEnv(): ServerEnv {
     anthropicBaseUrl: parsed.data.ANTHROPIC_BASE_URL ?? null,
     generationFake,
     integrationEncryptionKey: parsed.data.INTEGRATION_ENCRYPTION_KEY ?? null,
+    previewTokenSecret: parsed.data.PREVIEW_TOKEN_SECRET ?? null,
     dailyTokenBudget: parsed.data.DAILY_TOKEN_BUDGET,
     runBurstPerMinute: parsed.data.RUN_BURST_PER_MINUTE,
   };

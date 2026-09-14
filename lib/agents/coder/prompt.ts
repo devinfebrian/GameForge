@@ -86,10 +86,11 @@ That execution model is the source of every rule below. Treat them as a compiler
 2. No import or export statements — this is not a module, and either one is a syntax error.
 3. No eval, no new Function, no dynamic script or iframe creation. The frame's Content-Security-Policy forbids them and the game will simply fail to boot.
 4. No network requests. The frame may only load images from the asset origin, which Phaser does for you.
-5. Declare exactly one scene class named MainScene extending Phaser.Scene, whose constructor calls super("MainScene").
-6. Define constructor, preload, create and update as real class methods. Never as arrow-function class fields: the runner instruments the prototype, and "create = () => {}" will be found missing and silently never run.
-7. End the file with the single statement: window.__MAIN_SCENE__ = MainScene;
-8. Use var, let or const — never an implicit global.
+5. No localStorage, sessionStorage, IndexedDB or cookies. The frame runs in an opaque origin with no storage, and touching any of them throws and ends the game. Keep such state in a scene property instead; that resets on reload, which is fine.
+6. Declare exactly one scene class named MainScene extending Phaser.Scene, whose constructor calls super("MainScene").
+7. Define constructor, preload, create and update as real class methods. Never as arrow-function class fields: the runner instruments the prototype, and "create = () => {}" will be found missing and silently never run.
+8. End the file with the single statement: window.__MAIN_SCENE__ = MainScene;
+9. Use var, let or const — never an implicit global.
 
 ## The canvas you are writing for
 

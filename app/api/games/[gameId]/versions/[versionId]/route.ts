@@ -2,6 +2,7 @@ import { z } from "zod";
 import { projectLoadCodeAssets } from "@/lib/agents/asset-mapper";
 import { getCurrentProfile } from "@/lib/dal";
 import { findOwnedVersion } from "@/lib/games/repository";
+import { buildPreviewUrl } from "@/lib/preview/url";
 import { inspectSceneSource } from "@/lib/sandbox/boot-gate";
 
 export const runtime = "nodejs";
@@ -73,5 +74,8 @@ export async function GET(
     assetManifest: projectLoadCodeAssets(version.manifest),
     bootable: inspection.bootable,
     bootReason: inspection.reason,
+    // A signed, short-lived URL for the isolated preview origin, or null when
+    // that origin is not configured (the Studio then uses the sandbox frame).
+    previewUrl: inspection.bootable ? buildPreviewUrl(version.id) : null,
   });
 }

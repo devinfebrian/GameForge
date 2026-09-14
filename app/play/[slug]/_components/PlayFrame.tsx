@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { SandboxFrame } from "@/app/_components/SandboxFrame";
+import { PreviewFrame } from "@/app/_components/PreviewFrame";
 import { useSandboxBridge } from "@/lib/sandbox/useSandboxBridge";
 
 const buttonClassName =
@@ -9,48 +9,50 @@ const buttonClassName =
 
 export interface PlayFrameProps {
   readonly title: string;
-  readonly sourceCode: string;
-  readonly assetManifest: Record<string, string>;
+  /** The published version's preview URL; null when previews are not configured. */
+  readonly previewUrl: string | null;
 }
 
 /**
  * The public player.
  *
- * It reuses the sandbox document and the bridge rather than a bespoke runtime:
- * the same opaque-origin frame, the same `LOAD_CODE` contract, and the same CSP
- * already cover this case, and a second runtime would be a second thing to keep
- * in step with the scene contract.
- *
- * There is no probation, no repair and no mutation here — nothing on this page
- * may write. Sound unlocks on the visitor's first click via the runner's own
- * gesture handler.
+ * A published game needs no token — the preview route serves it because the game
+ * is public — so this reuses the same isolated document and bridge the Studio
+ * does. There is no probation, no repair and no mutation here: nothing on this
+ * page may write.
  */
-export function PlayFrame({ title, sourceCode, assetManifest }: PlayFrameProps) {
+export function PlayFrame({ title, previewUrl }: PlayFrameProps) {
   const bridge = useSandboxBridge();
-  const { ready, loadCode } = bridge;
+  const { ready, loadPreview } = bridge;
   // A ref, not state: React's strict mode runs the effect twice in development,
-  // and a second LOAD_CODE would restart the game under the player.
+  // and a second load would restart the game under the player.
   const bootedRef = useRef(false);
 
   useEffect(() => {
-    if (!ready || bootedRef.current) {
+    if (!ready || previewUrl === null || bootedRef.current) {
       return;
     }
 
     bootedRef.current = true;
-    loadCode(sourceCode, assetManifest);
-  }, [ready, loadCode, sourceCode, assetManifest]);
+    loadPreview(previewUrl);
+  }, [ready, loadPreview, previewUrl]);
 
   function enterFullscreen(): void {
     void bridge.frameRef.current?.requestFullscreen();
   }
 
+  if (previewUrl === null) {
+    return <p className="text-sm opacity-70">This game cannot be played right now.</p>;
+  }
+
   return (
     <div className="flex flex-col gap-3">
       <div className="h-[min(70vh,540px)] overflow-hidden rounded border border-black/15 bg-[#0b1020] dark:border-white/20">
-        <SandboxFrame
+        <PreviewFrame
           frameRef={bridge.frameRef}
+          src={bridge.previewUrl}
           onLoad={bridge.handleFrameLoad}
+          onReload={() => loadPreview(previewUrl)}
           title={title}
         />
       </div>
