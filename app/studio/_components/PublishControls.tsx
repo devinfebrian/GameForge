@@ -2,9 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { Check, Copy, Globe, Rocket } from "lucide-react";
 
 const buttonClassName =
-  "rounded border border-black/15 px-3 py-1.5 text-sm disabled:opacity-40 dark:border-white/20";
+  "inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/80 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40";
 
 export interface PublishControlsProps {
   readonly gameId: string | null;
@@ -38,12 +39,7 @@ async function readErrorMessage(response: Response): Promise<string> {
 }
 
 /**
- * Publish/unpublish for the Studio header.
- *
- * State is taken from the response rather than from a re-read, so the control
- * reflects the write that just happened without a round trip. `router.refresh()`
- * still runs, because the games list and the workspace both show publication
- * state and the server has to agree.
+ * Replit-styled Publish/Deploy controls for the Studio workspace.
  */
 export function PublishControls({
   gameId,
@@ -76,7 +72,6 @@ export function PublishControls({
 
       if (!response.ok) {
         setError(await readErrorMessage(response));
-
         return;
       }
 
@@ -107,20 +102,27 @@ export function PublishControls({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2 text-xs">
       <button
         type="button"
-        className={buttonClassName}
+        className={`${buttonClassName} ${
+          isPublic
+            ? "border-emerald-500/40 bg-emerald-950/30 text-emerald-300 hover:bg-emerald-900/40"
+            : "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20"
+        }`}
         disabled={gameId === null || busy}
         onClick={() => void setVisibility(!isPublic)}
       >
+        <Rocket className="size-3.5" />
         {isPublic ? "Unpublish" : "Publish"}
       </button>
 
       {isPublic && playPath !== null ? (
-        <>
+        <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1">
+          <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
+          <Globe className="size-3 text-muted-foreground" />
           <a
-            className="text-sm underline opacity-80"
+            className="font-mono text-xs text-emerald-400 hover:underline"
             href={playPath}
             target="_blank"
             rel="noreferrer"
@@ -130,16 +132,27 @@ export function PublishControls({
           </a>
           <button
             type="button"
-            className={buttonClassName}
+            className="ml-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
             onClick={() => void copyLink()}
+            title="Copy link"
           >
-            {copied ? "Copied" : "Copy link"}
+            {copied ? (
+              <>
+                <Check className="size-3 text-emerald-400" />
+                <span className="text-emerald-400">Copied</span>
+              </>
+            ) : (
+              <>
+                <Copy className="size-3" />
+                <span>Copy</span>
+              </>
+            )}
           </button>
-        </>
+        </div>
       ) : null}
 
       {error === null ? null : (
-        <span className="text-sm text-red-600 dark:text-red-400">{error}</span>
+        <span className="text-xs text-rose-400">{error}</span>
       )}
     </div>
   );

@@ -8,8 +8,10 @@ import { buildStandaloneHtml } from "@/lib/export/standalone";
 import { fetchVendorSources } from "@/lib/export/vendor";
 import { buildZip } from "@/lib/export/zip";
 
+import { FileArchive, FileCode } from "lucide-react";
+
 const buttonClassName =
-  "rounded border border-black/15 px-3 py-1.5 text-sm disabled:opacity-40 dark:border-white/20";
+  "inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/80 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40";
 
 export interface ExportMenuProps {
   readonly gameId: string | null;
@@ -28,17 +30,7 @@ interface BootPayload {
 }
 
 /**
- * Assembles both downloadable artifacts in the browser.
- *
- * Doing it here rather than in a route handler is what keeps the ~1 MB vendored
- * Phaser out of the server bundle: the files are already fetchable from
- * `/sandbox/vendor/`, and the sprites are already readable cross-origin from the
- * public bucket, so the server never has to read a filesystem that may not carry
- * `public/` on the deploy platform.
- *
- * The version exported is the one on screen. Exporting the current version
- * instead would make the timeline's Preview button lie about which snapshot the
- * download contains.
+ * Assembles downloadable game artifacts in the browser.
  */
 export function ExportMenu({ gameId, title, versionId }: ExportMenuProps) {
   const [busy, setBusy] = useState<Format | null>(null);
@@ -59,17 +51,13 @@ export function ExportMenu({ gameId, title, versionId }: ExportMenuProps) {
 
       if (!response.ok) {
         setError("This version could not be loaded.");
-
         return;
       }
 
       const boot = (await response.json()) as BootPayload;
 
-      // The same gate the sandbox uses. Exporting a scene the Studio refuses to
-      // boot would produce a file that only fails once it is already downloaded.
       if (!boot.bootable) {
         setError(boot.bootReason ?? "This version cannot be exported.");
-
         return;
       }
 
@@ -126,26 +114,29 @@ export function ExportMenu({ gameId, title, versionId }: ExportMenuProps) {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-1.5 text-xs">
       <button
         type="button"
         className={buttonClassName}
         disabled={disabled}
         onClick={() => void run("html")}
       >
+        <FileCode className="size-3.5 text-muted-foreground" />
         {busy === "html" ? "Building..." : "Export HTML"}
       </button>
+
       <button
         type="button"
         className={buttonClassName}
         disabled={disabled}
         onClick={() => void run("zip")}
       >
+        <FileArchive className="size-3.5 text-muted-foreground" />
         {busy === "zip" ? "Building..." : "Export ZIP"}
       </button>
 
       {error === null ? null : (
-        <span className="text-sm text-red-600 dark:text-red-400">{error}</span>
+        <span className="text-xs text-rose-400">{error}</span>
       )}
     </div>
   );
