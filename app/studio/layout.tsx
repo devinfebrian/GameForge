@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { requireUser } from "@/lib/dal";
 import { listGamesForUser } from "@/lib/games/repository";
 import { StudioSidebar } from "./_components/StudioSidebar";
@@ -19,9 +18,9 @@ export default async function StudioLayout({
   }));
 
   return (
-    <div className="flex h-[calc(100vh-49px)]">
-      <StudioSidebar games={gameProjects} activeId={null} />
-      <div className="flex-1 overflow-auto">{children}</div>
+    <div className="flex h-[calc(100vh-49px)] w-full overflow-hidden bg-[#0b0e14]">
+      <StudioSidebar games={gameProjects} />
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">{children}</div>
     </div>
   );
 }

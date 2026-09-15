@@ -11,6 +11,7 @@ export const SANDBOX_GAME_CONFIG = {
   height: 320,
   gravityX: 0,
   gravityY: 0,
+  pixelArt: true,
 } as const;
 
 /**
@@ -19,13 +20,14 @@ export const SANDBOX_GAME_CONFIG = {
  * `window.__MAIN_SCENE__` in every exported artifact.
  */
 export function buildPhaserConfigExpression(sceneExpression: string): string {
-  const { backgroundColor, width, height, gravityX, gravityY } = SANDBOX_GAME_CONFIG;
+  const { backgroundColor, width, height, gravityX, gravityY, pixelArt } = SANDBOX_GAME_CONFIG;
 
   return [
     "{",
     "    type: Phaser.AUTO,",
     '    parent: document.getElementById("game"),',
     `    backgroundColor: ${JSON.stringify(backgroundColor)},`,
+    `    pixelArt: ${pixelArt},`,
     "    scale: {",
     "      mode: Phaser.Scale.FIT,",
     "      autoCenter: Phaser.Scale.CENTER_BOTH,",

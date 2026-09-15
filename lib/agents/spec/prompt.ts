@@ -10,7 +10,7 @@ You produce one game design specification. You never write code.
 
 ## Hard constraints
 
-The game is rendered by Phaser 3 in a fixed 480x320 canvas with Arcade physics, keyboard and pointer input, and no save state. Keep every mechanic implementable in about 200 lines of scene code: one screen, one loop, one win and one loss condition. A spec that needs scrolling levels, pathfinding, enemy AI trees, inventories, or networking will not build.
+The game is rendered by Phaser 4 in a fixed 480x320 canvas with Arcade physics, keyboard and pointer input, and no save state. Keep every mechanic implementable in about 200 lines of scene code: one screen, one loop, one win and one loss condition. A spec that needs scrolling levels, pathfinding, enemy AI trees, inventories, or networking will not build.
 
 ## Entities
 

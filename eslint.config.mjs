@@ -28,6 +28,17 @@ const eslintConfig = defineConfig([
       },
     },
   },
+  {
+    // Upstream shadcn/AgentUI registry components
+    files: ["components/agents/**", "components/motion/**"],
+    rules: {
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/refs": "off",
+      "react-hooks/immutability": "off",
+      "@typescript-eslint/no-empty-object-type": "off",
+      "@next/next/no-img-element": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

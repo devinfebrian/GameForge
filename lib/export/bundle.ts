@@ -134,6 +134,6 @@ The Vite dev server prints a local URL; open it and the game starts.
 - \`index.html\` — the page, loading the scripts below.
 - \`main.js\` — the generated scene. Edit this to change the game.
 - \`assets/\` — the sprites the scene loads, referenced by \`window.assetManifest\`.
-- \`vendor/\` — Phaser 3 and jsfxr, vendored so the export has no CDN dependency.
+- \`vendor/\` — Phaser 4 and jsfxr, vendored so the export has no CDN dependency.
 ${name.length > 0 ? `\nPackage name: \`${name}\`\n` : ""}`;
 }
