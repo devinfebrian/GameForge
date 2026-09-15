@@ -31,12 +31,11 @@ async function resolvePhaserBuild(): Promise<string> {
     JSON.parse(await readFile(manifestPath, "utf8")),
   );
 
-  // npm's `latest` tag for phaser is 4.x. The architecture mandates Phaser 3 and
-  // Phaser 4 is not a drop-in upgrade, so refuse to vendor a 4.x build.
-  if (!manifest.version.startsWith("3.")) {
+  // GameForge uses Phaser 4.x for modern GPU rendering and visual FX
+  if (!manifest.version.startsWith("4.")) {
     throw new Error(
-      `phaser ${manifest.version} is installed but the sandbox requires Phaser 3.x ` +
-        "(see gameforge_architecture_plan.md 2.2). Pin phaser to ~3.90.0.",
+      `phaser ${manifest.version} is installed but the sandbox requires Phaser 4.x ` +
+        "(pin phaser to ^4.2.1).",
     );
   }
 

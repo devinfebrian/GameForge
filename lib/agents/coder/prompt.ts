@@ -1,5 +1,6 @@
 import type { GameSpec } from "@/lib/agents/spec/schema";
 import type { ResolvedManifest } from "@/lib/agents/asset-mapper/schema";
+import { PHASER4_SKILLS_PROMPT } from "./skills";
 
 /**
  * A revision request. The Coder is the same agent either way — only the user
@@ -63,12 +64,12 @@ function describeSounds(manifest: ResolvedManifest): string {
 
   return entries
     .map(([event, sound]) => {
-      if ('fileId' in sound && sound.url !== undefined) {
-        // File-based audio: preloaded via this.load.audio, played via this.sound.play()
-        return `- ${event}: play audio key "${event}" (preloaded file from game-audio bucket)`;
+      if ('preset' in sound) {
+        // jsfxr preset
+        return `- ${event}: soundFx.play("${sound.preset}")`;
       }
-      // jsfxr preset
-      return `- ${event}: soundFx.play("${sound.preset}")`;
+      // File-based audio: preloaded via this.load.audio, played via this.sound.play()
+      return `- ${event}: play audio key "${event}" (preloaded file from game-audio bucket)`;
     })
     .join("\n");
 }
@@ -79,11 +80,11 @@ function describeSounds(manifest: ResolvedManifest): string {
  * value lives in `buildCoderUserPrompt` instead.
  */
 export function buildCoderSystemPrompt(): string {
-  return `You are the Coder Agent for GameForge. You turn one game design into one Phaser 3 scene that runs immediately, unmodified.
+  return `You are the Coder Agent for GameForge. You turn one game design into one Phaser 4 scene that runs immediately, unmodified.
 
 ## How your output is executed
 
-Your output is loaded by the GameForge runtime as a plain JavaScript file - no module loader and no bundler. Phaser 3.90 is already available as the global "Phaser". The runtime then reads the global "window.__MAIN_SCENE__" and, when it holds a function, starts it as the only scene. Anything that is not that scene is ignored.
+Your output is loaded by the GameForge runtime as a plain JavaScript file - no module loader and no bundler. Phaser 4 (v4.2.1) is already available as the global "Phaser". The runtime then reads the global "window.__MAIN_SCENE__" and, when it holds a function, starts it as the only scene. Anything that is not that scene is ignored.
 
 That execution model is the source of every rule below. Treat them as a compiler would.
 
@@ -102,6 +103,7 @@ That execution model is the source of every rule below. Treat them as a compiler
 ## The canvas you are writing for
 
 - 480 wide by 320 tall, fixed. Do not set a scale config; the runner owns it.
+- Canvas has pixelArt: true enabled, so pixel art textures render crisp without blurring.
 - Arcade physics with gravity at (0, 0). For a platformer, set this.physics.world.gravity.y in create.
 - Call setCollideWorldBounds(true) on anything that must not leave the screen.
 - Background colour is #0b1020, so use colours that read against it.
@@ -120,22 +122,23 @@ ${PIXEL_ART_HELPER}
 
 ## Input and sound
 
-Implement every control the request lists using this.keyboard.addKeys and pointer events. Labels such as "ArrowLeft", "Space", "KeyW" and "Enter" map to Phaser key codes.
+Implement every control the request lists using this.input.keyboard.addKeys and pointer events. Labels such as "ArrowLeft", "Space", "KeyW" and "Enter" map to Phaser key codes.
 
 ### Sound (two systems)
 
 **jsfxr presets** (synthesized, always available):
-Play with `soundFx.play("<preset>")` at the moment the event happens. soundFx is always defined; a preset it does not recognise is a silent no-op.
+Play with soundFx.play("<preset>") at the moment the event happens. soundFx is always defined; a preset it does not recognise is a silent no-op.
 
-**File-based audio** (preloaded from game-audio bucket):
-If the request lists a sound as "preloaded file", it was already loaded in preload via:
-```
-this.load.audio("<event_key>", assetManifestAudio["<event_key>"]);
-```
-Play it in create/update with: `this.sound.play("<event_key>")`.
-The key is the event name (e.g. "player_shoot", "collect").
+**File-based audio** (preloaded from the game-audio bucket):
+If the request lists a sound as a "preloaded file", it was already loaded in preload via:
 
-Rules for all sounds: play at the moment the event actually happens, at human scale — never once per frame.
+this.load.audio("<event_key>", audioManifest["<event_key>"]);
+
+Play it in create/update with this.sound.play("<event_key>"). The key is the event name (e.g. "player_shoot", "collect").
+
+this.sound.play() is bridged: it plays a loaded audio file when the key is in the audio cache, and falls back to a jsfxr preset when the key is a preset name — either form works. Play sounds at the moment the event actually happens, at human scale — never once per frame.
+
+${PHASER4_SKILLS_PROMPT}
 
 ## Shape of a good scene
 

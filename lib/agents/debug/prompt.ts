@@ -56,7 +56,7 @@ export function buildDebugUserPrompt(input: {
 }): string {
   const { source, error, spec } = input;
 
-  return `A generated Phaser 3 scene threw at runtime in the sandbox. Fix it with the smallest change that removes the error.
+  return `A generated Phaser 4 scene threw at runtime in the sandbox. Fix it with the smallest change that removes the error.
 
 This is game "${spec.title}" (${spec.genre}). ${spec.summary}
 

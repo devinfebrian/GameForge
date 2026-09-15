@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { projectLoadCodeAssets } from "@/lib/agents/asset-mapper";
+import { projectAudioAssets, projectLoadCodeAssets } from "@/lib/agents/asset-mapper";
 import { getPublicEnv } from "@/lib/env/public";
 import { getServerEnv } from "@/lib/env/server";
 import { findVersionForPreview } from "@/lib/games/repository";
@@ -74,6 +74,7 @@ export async function GET(
     title: "GameForge preview",
     sceneSource: version.sourceCode,
     assetManifest: projectLoadCodeAssets(version.manifest),
+    audioManifest: projectAudioAssets(version.manifest),
     soundSource,
     appOrigin,
   });

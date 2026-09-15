@@ -53,10 +53,11 @@ export function buildZipEntries(input: BundleInput): ReadonlyArray<ZipEntry> {
   const name = slugifyTitle(input.title);
 
   const audioManifest: Record<string, string> = {};
+  const audioEntries: Array<ZipEntry> = [];
 
   for (const asset of input.audioAssets ?? []) {
     const audioPath = `audio/${asset.eventKey}.${asset.extension}`;
-    entries.push({ path: audioPath, bytes: asset.bytes });
+    audioEntries.push({ path: audioPath, bytes: asset.bytes });
     audioManifest[asset.eventKey] = `./${audioPath}`;
   }
 
@@ -84,12 +85,17 @@ export function buildZipEntries(input: BundleInput): ReadonlyArray<ZipEntry> {
     entries.push({ path: asset.path, bytes: asset.bytes });
   }
 
+  for (const entry of audioEntries) {
+    entries.push(entry);
+  }
+
   return entries;
 }
 
 function buildBundleHtml(
   title: string,
   assetManifest: Record<string, string>,
+  audioManifest: Record<string, string>,
 ): string {
   return `<!doctype html>
 <html lang="en">
@@ -152,6 +158,6 @@ The Vite dev server prints a local URL; open it and the game starts.
 - \`index.html\` — the page, loading the scripts below.
 - \`main.js\` — the generated scene. Edit this to change the game.
 - \`assets/\` — the sprites the scene loads, referenced by \`window.assetManifest\`.
-- \`vendor/\` — Phaser 3 and jsfxr, vendored so the export has no CDN dependency.
+- \`vendor/\` — Phaser 4 and jsfxr, vendored so the export has no CDN dependency.
 ${name.length > 0 ? `\nPackage name: \`${name}\`\n` : ""}`;
 }

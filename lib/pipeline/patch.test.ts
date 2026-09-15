@@ -32,7 +32,7 @@ const BASE_MANIFEST = resolvedManifestSchema.parse({
     player:
       "https://example.supabase.co/storage/v1/object/public/game-assets/player_ship.png",
   },
-  sounds: { shoot: "laser" },
+  sounds: { shoot: { preset: "laser" } },
 });
 
 const BASE: PatchBase = {
