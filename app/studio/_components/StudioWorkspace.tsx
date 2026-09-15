@@ -346,6 +346,8 @@ export function StudioWorkspace({
 
   const [instruction, setInstruction] = useState("");
   const [busy, setBusy] = useState(false);
+  /** Safety net: timestamp when busy was last set, so we can auto-reset if stuck. */
+  const [busySince, setBusySince] = useState<number | null>(null);
   const [runKind, setRunKind] = useState<"generate" | "patch" | null>(null);
   const [activeStage, setActiveStage] = useState<GenerationStage | null>(null);
   const [doneStages, setDoneStages] = useState<ReadonlyArray<GenerationStage>>([]);
@@ -397,6 +399,29 @@ export function StudioWorkspace({
   const openPreview = useCallback(() => {
     setUserPreviewOpen(true);
   }, []);
+
+  // Safety net: if busy stays true for longer than the server maxDuration (5 min),
+  // auto-reset so the user isn't permanently blocked.
+  const BUSY_TIMEOUT_MS = 330_000; // 5 min 30 s (server maxDuration=300s + buffer)
+  useEffect(() => {
+    if (!busy || busySince === null) return;
+    const elapsed = Date.now() - busySince;
+    const remaining = BUSY_TIMEOUT_MS - elapsed;
+    if (remaining <= 0) {
+      busyRef.current = false;
+      setBusy(false);
+      setBusySince(null);
+      setFailure("The previous run timed out without a response. You can try submitting again.");
+      return;
+    }
+    const id = setTimeout(() => {
+      busyRef.current = false;
+      setBusy(false);
+      setBusySince(null);
+      setFailure("The previous run timed out without a response. You can try submitting again.");
+    }, remaining);
+    return () => clearTimeout(id);
+  }, [busy, busySince]);
 
   // Handle Escape key when preview is expanded to fullscreen
   useEffect(() => {
@@ -576,6 +601,7 @@ export function StudioWorkspace({
 
       busyRef.current = true;
       setBusy(true);
+      setBusySince(Date.now());
       setUserPreviewOpen(null);
       setFailure(null);
       setWarning(null);
@@ -598,6 +624,7 @@ export function StudioWorkspace({
       abortRef.current = null;
       busyRef.current = false;
       setBusy(false);
+      setBusySince(null);
       setActiveStage(null);
       setInstruction("");
 
@@ -618,10 +645,19 @@ export function StudioWorkspace({
 
       if (result.kind === "terminal") {
         const data = result.frame.data as ErrorData;
-        setFailure(data.message);
+        // Make server errors actionable for the user
+        const actionableMessage =
+          data.code === "run_in_progress"
+            ? "A previous run is still in progress. Please wait a moment, then try again. If this persists, refresh the page."
+            : data.code === "rate_limited" || data.code === "quota_exceeded"
+              ? "You've hit the rate limit. Please wait a minute before trying again."
+              : data.code === "unauthorized"
+                ? "Your session has expired. Please sign in again."
+                : data.message;
+        setFailure(actionableMessage);
 
         if (data.versionId === null) {
-          addUnpersistedTurn(text, data.message);
+          addUnpersistedTurn(text, actionableMessage);
         }
 
         router.refresh();
@@ -635,10 +671,16 @@ export function StudioWorkspace({
 
       const note =
         result.kind === "stalled"
-          ? "The run stopped responding and was cancelled."
+          ? "The server stopped responding (timed out). Check your internet connection, then try again."
           : result.kind === "incomplete"
-            ? "The run ended without reporting a result."
-            : result.message;
+            ? "The connection was interrupted before the run finished. Please try again."
+            : result.kind === "http_error" && result.status === 409
+              ? "A run is already in progress. Please wait a moment, then try again."
+              : result.kind === "http_error" && result.status === 401
+                ? "Your session has expired. Please sign in again."
+                : result.kind === "http_error" && result.status === 429
+                  ? "Rate limited. Please wait a moment, then try again."
+                  : result.message;
 
       setFailure(note);
       addUnpersistedTurn(text, note);
@@ -1038,15 +1080,27 @@ export function StudioWorkspace({
                 </div>
               )}
 
-              {/* Failure Alert */}
+              {/* Failure Alert — always visible, with retry guidance */}
               {failure !== null && (
-                <div className="flex items-start gap-2.5 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                <div className="flex items-start gap-2.5 rounded-xl border border-destructive/50 bg-destructive/10 p-3.5 text-xs text-destructive shadow-sm">
                   <AlertCircle className="size-4 shrink-0 mt-0.5 text-destructive" />
-                  <div className="flex-1 space-y-1">
+                  <div className="flex-1 space-y-2">
                     <p className="font-semibold text-xs">Run Encountered an Error</p>
                     <p className="leading-relaxed text-[11px] text-muted-foreground">
                       {failure}
                     </p>
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => { setFailure(null); }}
+                        className="rounded-lg border border-border bg-background px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent transition-colors"
+                      >
+                        Dismiss
+                      </button>
+                      <span className="text-[10px] text-muted-foreground">
+                        Try again: edit your instruction above and click the send arrow.
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}
