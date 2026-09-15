@@ -3,8 +3,9 @@
 // is the same constraint generated code will have.
 //
 // Globals provided by the runner before injection:
-//   window.assetManifest - logical name -> asset URL, from the boot payload
-//   window.soundFx       - jsfxr-backed sound API
+//   window.assetManifest  - logical name -> image URL, from the boot payload
+//   window.audioManifest   - event key -> audio URL (file-based only), from the boot payload
+//   window.soundFx         - jsfxr-backed sound API (synthesized presets)
 
 export const MAIN_SCENE_FIXTURE = `
 class MainScene extends Phaser.Scene {
@@ -14,8 +15,15 @@ class MainScene extends Phaser.Scene {
   }
 
   preload() {
+    // Image sprites from game-assets bucket.
     if (assetManifest && assetManifest.player) {
       this.load.image("player", assetManifest.player);
+    }
+    // File-based audio from game-audio bucket.
+    if (audioManifest) {
+      for (const [key, url] of Object.entries(audioManifest)) {
+        this.load.audio(key, url);
+      }
     }
   }
 

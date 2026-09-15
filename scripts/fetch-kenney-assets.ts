@@ -25,10 +25,19 @@ interface KenneyPack {
 // Slugs verified against kenney.nl/assets/tag:* on 2026-09-11. Kenney retires and
 // renames packs, so a 404 here means the slug moved rather than a transient error.
 const PACKS: ReadonlyArray<KenneyPack> = [
+  // Sprite / texture packs (image catalog -> game-assets bucket).
   { slug: "space-shooter-remastered", label: "Space Shooter Remastered", license: "CC0-1.0" },
   { slug: "top-down-shooter", label: "Top-down Shooter", license: "CC0-1.0" },
   { slug: "new-platformer-pack", label: "New Platformer Pack", license: "CC0-1.0" },
   { slug: "roguelike-characters", label: "Roguelike Characters", license: "CC0-1.0" },
+  // "pixel" / "textures" / "UI pack" (teammate categories).
+  { slug: "pixel-platformer", label: "Pixel Platformer", license: "CC0-1.0" },
+  { slug: "abstract-platformer", label: "Abstract Platformer", license: "CC0-1.0" },
+  { slug: "ui-pack", label: "UI Pack", license: "CC0-1.0" },
+  // Audio packs (audio catalog -> game-audio bucket).
+  { slug: "sci-fi-sounds", label: "Sci-fi Sounds", license: "CC0-1.0" },
+  { slug: "impact-sounds", label: "Impact Sounds", license: "CC0-1.0" },
+  { slug: "interface-sounds", label: "Interface Sounds", license: "CC0-1.0" },
 ];
 
 const ZIP_URL_PATTERN =

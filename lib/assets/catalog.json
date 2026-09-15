@@ -221,6 +221,348 @@
       ],
       "width": 918,
       "height": 203
+    },
+    {
+      "id": "pixel_player_stand",
+      "source": "pixel-platformer/Tiles/Characters/tile_0000.png",
+      "objectPath": "pixel-platformer/pixel_player_stand.png",
+      "pack": "Pixel Platformer",
+      "tags": [
+        "player",
+        "character",
+        "pixel",
+        "platformer"
+      ],
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "pixel_player_walk_1",
+      "source": "pixel-platformer/Tiles/Characters/tile_0004.png",
+      "objectPath": "pixel-platformer/pixel_player_walk_1.png",
+      "pack": "Pixel Platformer",
+      "tags": [
+        "player",
+        "character",
+        "pixel",
+        "platformer"
+      ],
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "pixel_enemy_slime",
+      "source": "pixel-platformer/Tiles/Characters/tile_0016.png",
+      "objectPath": "pixel-platformer/pixel_enemy_slime.png",
+      "pack": "Pixel Platformer",
+      "tags": [
+        "enemy",
+        "pixel",
+        "platformer"
+      ],
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "pixel_enemy_skeleton",
+      "source": "pixel-platformer/Tiles/Characters/tile_0019.png",
+      "objectPath": "pixel-platformer/pixel_enemy_skeleton.png",
+      "pack": "Pixel Platformer",
+      "tags": [
+        "enemy",
+        "pixel",
+        "platformer"
+      ],
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "pixel_tile_grass",
+      "source": "pixel-platformer/Tiles/Backgrounds/tile_0000.png",
+      "objectPath": "pixel-platformer/pixel_tile_grass.png",
+      "pack": "Pixel Platformer",
+      "tags": [
+        "terrain",
+        "tile",
+        "pixel",
+        "background"
+      ],
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "pixel_tile_dirt",
+      "source": "pixel-platformer/Tiles/Backgrounds/tile_0005.png",
+      "objectPath": "pixel-platformer/pixel_tile_dirt.png",
+      "pack": "Pixel Platformer",
+      "tags": [
+        "terrain",
+        "tile",
+        "pixel",
+        "background"
+      ],
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "pixel_tile_stone",
+      "source": "pixel-platformer/Tiles/Backgrounds/tile_0010.png",
+      "objectPath": "pixel-platformer/pixel_tile_stone.png",
+      "pack": "Pixel Platformer",
+      "tags": [
+        "terrain",
+        "tile",
+        "pixel",
+        "background"
+      ],
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "pixel_collectible_coin",
+      "source": "pixel-platformer/Tiles/Characters/tile_0013.png",
+      "objectPath": "pixel-platformer/pixel_collectible_coin.png",
+      "pack": "Pixel Platformer",
+      "tags": [
+        "collectible",
+        "coin",
+        "pixel",
+        "platformer"
+      ],
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "abstract_player_stand",
+      "source": "abstract-platformer/PNG/Players/Player Green/playerGreen_stand.png",
+      "objectPath": "abstract-platformer/abstract_player_stand.png",
+      "pack": "Abstract Platformer",
+      "tags": [
+        "player",
+        "character",
+        "platformer"
+      ],
+      "width": 38,
+      "height": 50
+    },
+    {
+      "id": "abstract_player_walk_1",
+      "source": "abstract-platformer/PNG/Players/Player Green/playerGreen_walk1.png",
+      "objectPath": "abstract-platformer/abstract_player_walk_1.png",
+      "pack": "Abstract Platformer",
+      "tags": [
+        "player",
+        "character",
+        "platformer"
+      ],
+      "width": 38,
+      "height": 50
+    },
+    {
+      "id": "abstract_enemy_walking",
+      "source": "abstract-platformer/PNG/Enemies/enemyWalking_1.png",
+      "objectPath": "abstract-platformer/abstract_enemy_walking.png",
+      "pack": "Abstract Platformer",
+      "tags": [
+        "enemy",
+        "platformer"
+      ],
+      "width": 32,
+      "height": 44
+    },
+    {
+      "id": "abstract_enemy_flying",
+      "source": "abstract-platformer/PNG/Enemies/enemyFlying_1.png",
+      "objectPath": "abstract-platformer/abstract_enemy_flying.png",
+      "pack": "Abstract Platformer",
+      "tags": [
+        "enemy",
+        "flying",
+        "platformer"
+      ],
+      "width": 64,
+      "height": 38
+    },
+    {
+      "id": "abstract_enemy_spikey",
+      "source": "abstract-platformer/PNG/Enemies/enemySpikey_1.png",
+      "objectPath": "abstract-platformer/abstract_enemy_spikey.png",
+      "pack": "Abstract Platformer",
+      "tags": [
+        "enemy",
+        "spikey",
+        "platformer"
+      ],
+      "width": 32,
+      "height": 40
+    },
+    {
+      "id": "abstract_gem_blue",
+      "source": "abstract-platformer/PNG/Items/blueGem.png",
+      "objectPath": "abstract-platformer/abstract_gem_blue.png",
+      "pack": "Abstract Platformer",
+      "tags": [
+        "collectible",
+        "gem",
+        "item"
+      ],
+      "width": 22,
+      "height": 22
+    },
+    {
+      "id": "abstract_crystal_green",
+      "source": "abstract-platformer/PNG/Items/greenCrystal.png",
+      "objectPath": "abstract-platformer/abstract_crystal_green.png",
+      "pack": "Abstract Platformer",
+      "tags": [
+        "collectible",
+        "crystal",
+        "item"
+      ],
+      "width": 32,
+      "height": 30
+    },
+    {
+      "id": "abstract_key",
+      "source": "abstract-platformer/PNG/Items/keyGreen.png",
+      "objectPath": "abstract-platformer/abstract_key.png",
+      "pack": "Abstract Platformer",
+      "tags": [
+        "collectible",
+        "key",
+        "item"
+      ],
+      "width": 29,
+      "height": 30
+    },
+    {
+      "id": "abstract_tile_green",
+      "source": "abstract-platformer/PNG/Tiles/Green tiles/tileGreen_01.png",
+      "objectPath": "abstract-platformer/abstract_tile_green.png",
+      "pack": "Abstract Platformer",
+      "tags": [
+        "terrain",
+        "tile",
+        "platformer"
+      ],
+      "width": 64,
+      "height": 50
+    },
+    {
+      "id": "abstract_tile_brown",
+      "source": "abstract-platformer/PNG/Tiles/Brown tiles/tileBrown_01.png",
+      "objectPath": "abstract-platformer/abstract_tile_brown.png",
+      "pack": "Abstract Platformer",
+      "tags": [
+        "terrain",
+        "tile",
+        "platformer"
+      ],
+      "width": 64,
+      "height": 64
+    },
+    {
+      "id": "abstract_background_set1",
+      "source": "abstract-platformer/PNG/Backgrounds/set1_background.png",
+      "objectPath": "abstract-platformer/abstract_background_set1.png",
+      "pack": "Abstract Platformer",
+      "tags": [
+        "background",
+        "texture"
+      ],
+      "width": 640,
+      "height": 480
+    },
+    {
+      "id": "ui_button_rectangle_flat",
+      "source": "ui-pack/PNG/Blue/Default/button_rectangle_flat.png",
+      "objectPath": "ui-pack/ui_button_rectangle_flat.png",
+      "pack": "UI Pack",
+      "tags": [
+        "ui",
+        "button",
+        "interface"
+      ],
+      "width": 192,
+      "height": 64
+    },
+    {
+      "id": "ui_button_round_flat",
+      "source": "ui-pack/PNG/Blue/Default/button_round_flat.png",
+      "objectPath": "ui-pack/ui_button_round_flat.png",
+      "pack": "UI Pack",
+      "tags": [
+        "ui",
+        "button",
+        "interface"
+      ],
+      "width": 64,
+      "height": 64
+    },
+    {
+      "id": "ui_button_square_flat",
+      "source": "ui-pack/PNG/Blue/Default/button_square_flat.png",
+      "objectPath": "ui-pack/ui_button_square_flat.png",
+      "pack": "UI Pack",
+      "tags": [
+        "ui",
+        "button",
+        "interface"
+      ],
+      "width": 64,
+      "height": 64
+    },
+    {
+      "id": "ui_arrow_basic_e",
+      "source": "ui-pack/PNG/Blue/Default/arrow_basic_e.png",
+      "objectPath": "ui-pack/ui_arrow_basic_e.png",
+      "pack": "UI Pack",
+      "tags": [
+        "ui",
+        "arrow",
+        "interface"
+      ],
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "ui_slider_horizontal_color",
+      "source": "ui-pack/PNG/Blue/Default/slide_horizontal_color.png",
+      "objectPath": "ui-pack/ui_slider_horizontal_color.png",
+      "pack": "UI Pack",
+      "tags": [
+        "ui",
+        "slider",
+        "interface"
+      ],
+      "width": 96,
+      "height": 16
+    },
+    {
+      "id": "ui_check_round_color",
+      "source": "ui-pack/PNG/Blue/Default/check_round_color.png",
+      "objectPath": "ui-pack/ui_check_round_color.png",
+      "pack": "UI Pack",
+      "tags": [
+        "ui",
+        "checkbox",
+        "interface"
+      ],
+      "width": 32,
+      "height": 32
+    },
+    {
+      "id": "ui_icon_circle",
+      "source": "ui-pack/PNG/Blue/Default/icon_circle.png",
+      "objectPath": "ui-pack/ui_icon_circle.png",
+      "pack": "UI Pack",
+      "tags": [
+        "ui",
+        "icon",
+        "interface"
+      ],
+      "width": 16,
+      "height": 16
     }
   ]
 }

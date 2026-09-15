@@ -1,0 +1,205 @@
+[
+  {
+    "id": "sfx_laser_small",
+    "source": "sci-fi-sounds/Audio/laserSmall_000.ogg",
+    "objectPath": "sci-fi-sounds/laserSmall.ogg",
+    "pack": "Sci-fi Sounds",
+    "tags": ["laser", "shoot", "weapon", "projectile"]
+  },
+  {
+    "id": "sfx_laser_retro",
+    "source": "sci-fi-sounds/Audio/laserRetro_000.ogg",
+    "objectPath": "sci-fi-sounds/laserRetro.ogg",
+    "pack": "Sci-fi Sounds",
+    "tags": ["laser", "retro", "shoot", "weapon"]
+  },
+  {
+    "id": "sfx_laser_large",
+    "source": "sci-fi-sounds/Audio/laserLarge_000.ogg",
+    "objectPath": "sci-fi-sounds/laserLarge.ogg",
+    "pack": "Sci-fi Sounds",
+    "tags": ["laser", "large", "weapon", "heavy"]
+  },
+  {
+    "id": "sfx_explosion_crunch",
+    "source": "sci-fi-sounds/Audio/explosionCrunch_000.ogg",
+    "objectPath": "sci-fi-sounds/explosionCrunch.ogg",
+    "pack": "Sci-fi Sounds",
+    "tags": ["explosion", "death", "destroy", "impact"]
+  },
+  {
+    "id": "sfx_explosion_lowfreq",
+    "source": "sci-fi-sounds/Audio/lowFrequency_explosion_000.ogg",
+    "objectPath": "sci-fi-sounds/lowFrequencyExplosion.ogg",
+    "pack": "Sci-fi Sounds",
+    "tags": ["explosion", "deep", "boom", "bass"]
+  },
+  {
+    "id": "sfx_impact_metal",
+    "source": "sci-fi-sounds/Audio/impactMetal_000.ogg",
+    "objectPath": "sci-fi-sounds/impactMetal.ogg",
+    "pack": "Sci-fi Sounds",
+    "tags": ["hit", "impact", "metal", "damage"]
+  },
+  {
+    "id": "sfx_forcefield",
+    "source": "sci-fi-sounds/Audio/forceField_000.ogg",
+    "objectPath": "sci-fi-sounds/forceField.ogg",
+    "pack": "Sci-fi Sounds",
+    "tags": ["powerup", "shield", "forcefield", "buff"]
+  },
+  {
+    "id": "sfx_space_engine",
+    "source": "sci-fi-sounds/Audio/spaceEngine_000.ogg",
+    "objectPath": "sci-fi-sounds/spaceEngine.ogg",
+    "pack": "Sci-fi Sounds",
+    "tags": ["engine", "ambient", "space", "loop"]
+  },
+  {
+    "id": "sfx_thruster_fire",
+    "source": "sci-fi-sounds/Audio/thrusterFire_000.ogg",
+    "objectPath": "sci-fi-sounds/thrusterFire.ogg",
+    "pack": "Sci-fi Sounds",
+    "tags": ["thruster", "jet", "fire", "engine"]
+  },
+  {
+    "id": "sfx_door_open",
+    "source": "sci-fi-sounds/Audio/doorOpen_000.ogg",
+    "objectPath": "sci-fi-sounds/doorOpen.ogg",
+    "pack": "Sci-fi Sounds",
+    "tags": ["door", "open", "interface", "transition"]
+  },
+  {
+    "id": "sfx_door_close",
+    "source": "sci-fi-sounds/Audio/doorClose_000.ogg",
+    "objectPath": "sci-fi-sounds/doorClose.ogg",
+    "pack": "Sci-fi Sounds",
+    "tags": ["door", "close", "interface", "transition"]
+  },
+  {
+    "id": "sfx_computer_noise",
+    "source": "sci-fi-sounds/Audio/computerNoise_000.ogg",
+    "objectPath": "sci-fi-sounds/computerNoise.ogg",
+    "pack": "Sci-fi Sounds",
+    "tags": ["computer", "noise", "glitch", "electronic"]
+  },
+  {
+    "id": "sfx_slime",
+    "source": "sci-fi-sounds/Audio/slime_000.ogg",
+    "objectPath": "sci-fi-sounds/slime.ogg",
+    "pack": "Sci-fi Sounds",
+    "tags": ["slime", "squish", "organic", "enemy"]
+  },
+  {
+    "id": "sfx_impact_punch_heavy",
+    "source": "impact-sounds/Audio/impactPunch_heavy_000.ogg",
+    "objectPath": "impact-sounds/impactPunchHeavy.ogg",
+    "pack": "Impact Sounds",
+    "tags": ["hit", "punch", "heavy", "melee", "damage"]
+  },
+  {
+    "id": "sfx_impact_generic_light",
+    "source": "impact-sounds/Audio/impactGeneric_light_000.ogg",
+    "objectPath": "impact-sounds/impactGenericLight.ogg",
+    "pack": "Impact Sounds",
+    "tags": ["hit", "impact", "light", "tap", "touch"]
+  },
+  {
+    "id": "sfx_impact_glass_medium",
+    "source": "impact-sounds/Audio/impactGlass_medium_000.ogg",
+    "objectPath": "impact-sounds/impactGlassMedium.ogg",
+    "pack": "Impact Sounds",
+    "tags": ["hit", "glass", "break", "shatter", "fragile"]
+  },
+  {
+    "id": "sfx_impact_wood_light",
+    "source": "impact-sounds/Audio/impactWood_light_000.ogg",
+    "objectPath": "impact-sounds/impactWoodLight.ogg",
+    "pack": "Impact Sounds",
+    "tags": ["hit", "wood", "light", "surface"]
+  },
+  {
+    "id": "sfx_impact_metal_heavy",
+    "source": "impact-sounds/Audio/impactMetal_heavy_000.ogg",
+    "objectPath": "impact-sounds/impactMetalHeavy.ogg",
+    "pack": "Impact Sounds",
+    "tags": ["hit", "metal", "heavy", "clang", "armor"]
+  },
+  {
+    "id": "sfx_impact_plate_heavy",
+    "source": "impact-sounds/Audio/impactPlate_heavy_000.ogg",
+    "objectPath": "impact-sounds/impactPlateHeavy.ogg",
+    "pack": "Impact Sounds",
+    "tags": ["hit", "plate", "heavy", "thud", "ground"]
+  },
+  {
+    "id": "sfx_footstep_grass",
+    "source": "impact-sounds/Audio/footstep_grass_000.ogg",
+    "objectPath": "impact-sounds/footstepGrass.ogg",
+    "pack": "Impact Sounds",
+    "tags": ["footstep", "grass", "walk", "movement"]
+  },
+  {
+    "id": "sfx_footstep_concrete",
+    "source": "impact-sounds/Audio/footstep_concrete_000.ogg",
+    "objectPath": "impact-sounds/footstepConcrete.ogg",
+    "pack": "Impact Sounds",
+    "tags": ["footstep", "concrete", "walk", "movement"]
+  },
+  {
+    "id": "sfx_footstep_wood",
+    "source": "impact-sounds/Audio/footstep_wood_000.ogg",
+    "objectPath": "impact-sounds/footstepWood.ogg",
+    "pack": "Impact Sounds",
+    "tags": ["footstep", "wood", "walk", "movement"]
+  },
+  {
+    "id": "ui_click",
+    "source": "interface-sounds/Audio/click_001.ogg",
+    "objectPath": "interface-sounds/click.ogg",
+    "pack": "Interface Sounds",
+    "tags": ["ui", "click", "button", "select"]
+  },
+  {
+    "id": "ui_select",
+    "source": "interface-sounds/Audio/select_001.ogg",
+    "objectPath": "interface-sounds/select.ogg",
+    "pack": "Interface Sounds",
+    "tags": ["ui", "select", "confirm", "choose"]
+  },
+  {
+    "id": "ui_confirmation",
+    "source": "interface-sounds/Audio/confirmation_001.ogg",
+    "objectPath": "interface-sounds/confirmation.ogg",
+    "pack": "Interface Sounds",
+    "tags": ["ui", "confirmation", "success", "done"]
+  },
+  {
+    "id": "ui_error",
+    "source": "interface-sounds/Audio/error_001.ogg",
+    "objectPath": "interface-sounds/error.ogg",
+    "pack": "Interface Sounds",
+    "tags": ["ui", "error", "fail", "alert"]
+  },
+  {
+    "id": "ui_bong",
+    "source": "interface-sounds/Audio/bong_001.ogg",
+    "objectPath": "interface-sounds/bong.ogg",
+    "pack": "Interface Sounds",
+    "tags": ["ui", "bong", "notify", "ping"]
+  },
+  {
+    "id": "ui_drop",
+    "source": "interface-sounds/Audio/drop_001.ogg",
+    "objectPath": "interface-sounds/drop.ogg",
+    "pack": "Interface Sounds",
+    "tags": ["ui", "drop", "place", "item"]
+  },
+  {
+    "id": "ui_tick",
+    "source": "interface-sounds/Audio/tick_001.ogg",
+    "objectPath": "interface-sounds/tick.ogg",
+    "pack": "Interface Sounds",
+    "tags": ["ui", "tick", "timer", "countdown"]
+  }
+]

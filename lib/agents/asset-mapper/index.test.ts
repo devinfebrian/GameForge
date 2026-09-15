@@ -95,7 +95,7 @@ describe("resolveManifest", () => {
       supabaseUrl: SUPABASE_URL,
     });
 
-    expect(manifest.sounds.collect).toBe("pickup");
+    expect(manifest.sounds.collect).toEqual({ preset: "pickup" });
   });
 });
 
@@ -142,7 +142,7 @@ describe("mergeManifests", () => {
 
     expect(merged.sprites.coin).toBe(base.sprites.coin);
     expect(merged.sprites.coin).not.toBeNull();
-    expect(merged.sounds).toEqual({ collect: "pickup" });
+    expect(merged.sounds).toEqual({ collect: { preset: "pickup" } });
   });
 
   test("lets a new assignment win over the old one", () => {
@@ -160,7 +160,7 @@ describe("mergeManifests", () => {
 
     expect(merged.sprites.coin).toBe(next.sprites.coin);
     expect(merged.sprites.coin).not.toBe(base.sprites.coin);
-    expect(merged.sounds.collect).toBe("powerup");
+    expect(merged.sounds.collect).toEqual({ preset: "powerup" });
   });
 
   test("is a no-op when nothing was mapped", () => {

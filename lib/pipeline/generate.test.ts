@@ -207,7 +207,7 @@ describe("runGeneration — success", () => {
     expect(firstPersist.manifest.sprites.player).toBe(
       `${SUPABASE_URL}/storage/v1/object/public/game-assets/space-shooter-remastered/player_ship.png`,
     );
-    expect(firstPersist.manifest.sounds.shoot).toBe("laser");
+    expect(firstPersist.manifest.sounds.shoot).toEqual({ preset: "laser" });
   });
 
   test("sums usage across every stage", async () => {

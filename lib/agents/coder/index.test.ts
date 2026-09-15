@@ -24,7 +24,7 @@ const spec: GameSpec = {
 
 const manifest: ResolvedManifest = {
   sprites: { player: "https://example.co/player.png", bee: null },
-  sounds: { collect: "pickup" },
+  sounds: { collect: { preset: "pickup" } },
 };
 
 describe("normalizeSceneSource", () => {
@@ -197,7 +197,7 @@ describe("buildCoderUserPrompt", () => {
 
   test("tells the model to stay quiet when nothing was assigned", () => {
     expect(buildCoderUserPrompt(spec, { sprites: {}, sounds: {} })).toContain(
-      "Do not call soundFx.",
+      "No sound effects were assigned.",
     );
   });
 
