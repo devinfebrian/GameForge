@@ -109,9 +109,9 @@ const GAME_SOURCES: CitationItem[] = [
   },
   {
     id: "phaser-engine",
-    title: "Phaser 3 Game Framework API",
+    title: "Phaser 4 Game Framework API",
     domain: "phaser.io",
-    url: "https://phaser.io",
+    url: "https://phaser.io/phaser4",
   },
   {
     id: "web-audio",
@@ -796,11 +796,11 @@ export function StudioWorkspace({
               {messages.length === 0 && unpersisted.length === 0 && (
                 <div className="flex flex-col gap-4 py-3">
                   <div className="rounded-xl border border-border bg-card p-4 text-left">
-                    <h3 className="font-semibold text-sm text-foreground mb-1">
+                    <h3 className="text-sm font-semibold tracking-tight">
                       Welcome to GameForge Studio
                     </h3>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      Describe any 2D game concept and the AI Agent will generate the Phaser 3 code, map Kenney sprites, and boot it directly in the live sandbox.
+                      Describe any 2D game concept and the AI Agent will generate the Phaser 4 code, map Kenney sprites or procedural pixel art, and boot it directly in the live sandbox.
                     </p>
                   </div>
 
@@ -976,7 +976,7 @@ export function StudioWorkspace({
                             ? "Synthesizing gameplay rules, entities & Arcade physics components"
                             : stage.id === "asset_mapper"
                               ? "Mapping Kenney CC0 2D sprites & audio synthesizers"
-                              : "Compiling Phaser 3 TypeScript scene & sandbox bundle",
+                              : "Compiling Phaser 4 TypeScript scene & sandbox bundle",
                       };
                     })}
                     defaultOpen={true}
@@ -989,7 +989,7 @@ export function StudioWorkspace({
                       title="Game Architecture & Components Synthesized"
                       status="success"
                       kind="request"
-                      meta="Phaser 3 Spec"
+                      meta="Phaser 4 Spec"
                     >
                       <ToolResultOutput language="typescript">
                         {`// Game Architecture Synthesized:\n// Canvas: 800x600, Physics: Arcade\n// Entities: Player, Obstacles, Collectibles, HUD\n// State: Title, Play, GameOver`}
@@ -1018,7 +1018,7 @@ export function StudioWorkspace({
                   {doneStages.includes("coder") && (
                     <ToolResult
                       tool="phaser_compiler"
-                      title="Phaser 3 Scene Compiled & Bundled"
+                      title="Phaser 4 Scene Compiled & Bundled"
                       status="success"
                       kind="terminal"
                       meta="TypeScript 5.x"

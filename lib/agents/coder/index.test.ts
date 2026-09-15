@@ -129,6 +129,13 @@ describe("buildCoderSystemPrompt", () => {
     expect(prompt).not.toContain("<script");
     expect(prompt).not.toContain("</script");
   });
+
+  test("targets Phaser 4 and compiles skills.sh guidance", () => {
+    expect(prompt).toContain("Phaser 4 (v4.2.1)");
+    expect(prompt).toContain("pixelArt: true");
+    expect(prompt).toContain("enableFilters()");
+    expect(prompt).toContain("maxParticles");
+  });
 });
 
 describe("buildCoderUserPrompt with a patch", () => {

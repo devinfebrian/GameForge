@@ -101,3 +101,23 @@ export const soundFx = {
 };
 
 window.soundFx = soundFx;
+
+// Bridge soundFx presets into Phaser's sound manager if Phaser is present
+if (
+  typeof window !== "undefined" &&
+  typeof window.Phaser !== "undefined" &&
+  window.Phaser.Sound &&
+  window.Phaser.Sound.BaseSoundManager
+) {
+  const origPlay = window.Phaser.Sound.BaseSoundManager.prototype.play;
+  window.Phaser.Sound.BaseSoundManager.prototype.play = function (key, extra) {
+    if (this.game && this.game.cache && this.game.cache.audio && this.game.cache.audio.has(key)) {
+      return origPlay.call(this, key, extra);
+    }
+    if (PRESET_BY_NAME[key] !== undefined) {
+      soundFx.play(key);
+      return true;
+    }
+    return origPlay.call(this, key, extra);
+  };
+}
