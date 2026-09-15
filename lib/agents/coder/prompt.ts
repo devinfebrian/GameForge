@@ -58,11 +58,18 @@ function describeSounds(manifest: ResolvedManifest): string {
   const entries = Object.entries(manifest.sounds);
 
   if (entries.length === 0) {
-    return "No sound effects were assigned. Do not call soundFx.";
+    return "No sound effects were assigned. Do not call soundFx or load audio files.";
   }
 
   return entries
-    .map(([event, preset]) => `- ${event}: soundFx.play("${preset}")`)
+    .map(([event, sound]) => {
+      if ('fileId' in sound && sound.url !== undefined) {
+        // File-based audio: preloaded via this.load.audio, played via this.sound.play()
+        return `- ${event}: play audio key "${event}" (preloaded file from game-audio bucket)`;
+      }
+      // jsfxr preset
+      return `- ${event}: soundFx.play("${sound.preset}")`;
+    })
     .join("\n");
 }
 
@@ -115,7 +122,20 @@ ${PIXEL_ART_HELPER}
 
 Implement every control the request lists using this.keyboard.addKeys and pointer events. Labels such as "ArrowLeft", "Space", "KeyW" and "Enter" map to Phaser key codes.
 
-Play each sound the request lists with soundFx.play("<preset>") at the moment the event actually happens, at human scale — never once per frame. soundFx is always defined; a preset name it does not recognise is a silent no-op rather than an error, so use only the names given.
+### Sound (two systems)
+
+**jsfxr presets** (synthesized, always available):
+Play with `soundFx.play("<preset>")` at the moment the event happens. soundFx is always defined; a preset it does not recognise is a silent no-op.
+
+**File-based audio** (preloaded from game-audio bucket):
+If the request lists a sound as "preloaded file", it was already loaded in preload via:
+```
+this.load.audio("<event_key>", assetManifestAudio["<event_key>"]);
+```
+Play it in create/update with: `this.sound.play("<event_key>")`.
+The key is the event name (e.g. "player_shoot", "collect").
+
+Rules for all sounds: play at the moment the event actually happens, at human scale — never once per frame.
 
 ## Shape of a good scene
 

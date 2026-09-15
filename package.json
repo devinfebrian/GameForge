@@ -14,6 +14,8 @@
     "assets:fetch": "bun scripts/fetch-kenney-assets.ts",
     "assets:sync": "bun --conditions react-server scripts/seed-assets.ts",
     "assets:check": "bun --conditions react-server scripts/seed-assets.ts --check",
+    "audio:sync": "bun --conditions react-server scripts/seed-audio.ts",
+    "audio:check": "bun --conditions react-server scripts/seed-audio.ts --check",
     "postinstall": "bun scripts/copy-vendor.ts"
   },
   "dependencies": {

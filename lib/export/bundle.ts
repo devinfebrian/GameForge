@@ -11,11 +11,21 @@ export interface BundleAsset {
   readonly bytes: Uint8Array;
 }
 
+export interface BundleAudioAsset {
+  /** Event key (e.g. "player_shoot", "collect"). */
+  readonly eventKey: string;
+  /** Without the dot, e.g. `ogg`. */
+  readonly extension: string;
+  readonly bytes: Uint8Array;
+}
+
 export interface BundleInput {
   readonly title: string;
   readonly sceneSource: string;
   readonly vendor: ExportVendorSources;
   readonly assets: ReadonlyArray<BundleAsset>;
+  /** File-based audio assets for the editable export. */
+  readonly audioAssets?: ReadonlyArray<BundleAudioAsset>;
 }
 
 /**
@@ -42,8 +52,16 @@ export function buildZipEntries(input: BundleInput): ReadonlyArray<ZipEntry> {
 
   const name = slugifyTitle(input.title);
 
+  const audioManifest: Record<string, string> = {};
+
+  for (const asset of input.audioAssets ?? []) {
+    const audioPath = `audio/${asset.eventKey}.${asset.extension}`;
+    entries.push({ path: audioPath, bytes: asset.bytes });
+    audioManifest[asset.eventKey] = `./${audioPath}`;
+  }
+
   const entries: Array<ZipEntry> = [
-    { path: "index.html", bytes: encoder.encode(buildBundleHtml(input.title, manifest)) },
+    { path: "index.html", bytes: encoder.encode(buildBundleHtml(input.title, manifest, audioManifest)) },
     { path: "main.js", bytes: encoder.encode(input.sceneSource) },
     {
       path: "vendor/phaser.min.js",
@@ -91,7 +109,7 @@ function buildBundleHtml(
 <script src="./vendor/sound.js"></script>
 <script src="./main.js"></script>
 <script>
-${buildBootScript(assetManifest)}</script>
+${buildBootScript(assetManifest, audioManifest)}</script>
 </body>
 </html>
 `;

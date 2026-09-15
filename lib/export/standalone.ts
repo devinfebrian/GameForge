@@ -6,6 +6,8 @@ export interface StandaloneInput {
   readonly title: string;
   readonly sceneSource: string;
   readonly assetManifest: Record<string, string>;
+  /** File-based audio manifest (event key -> URL). */
+  readonly audioManifest?: Record<string, string>;
   readonly vendor: ExportVendorSources;
 }
 
@@ -47,7 +49,7 @@ export function buildStandaloneHtml(input: StandaloneInput): string {
 <script>${sound}</script>
 <script>${scene}</script>
 <script>
-${buildBootScript(input.assetManifest)}</script>
+${buildBootScript(input.assetManifest, input.audioManifest)}</script>
 </body>
 </html>
 `;

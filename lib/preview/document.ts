@@ -8,6 +8,8 @@ export interface PreviewDocumentInput {
   readonly title: string;
   readonly sceneSource: string;
   readonly assetManifest: Record<string, string>;
+  /** Audio manifest: event key -> URL (file-based audio only). Empty if all sounds are jsfxr. */
+  readonly audioManifest: Record<string, string>;
   /** The contents of `public/sandbox/sound.js`, an ES module, read for stripping. */
   readonly soundSource: string;
   /** The app origin the frame posts bridge messages to. */
@@ -28,6 +30,7 @@ export function buildPreviewDocument(input: PreviewDocumentInput): string {
   const sound = escapeInlineScript(stripModuleSyntax(input.soundSource));
   const scene = escapeInlineScript(input.sceneSource);
   const manifest = escapeInlineScript(JSON.stringify(input.assetManifest));
+  const audioManifest = escapeInlineScript(JSON.stringify(input.audioManifest));
   const agent = escapeInlineScript(
     buildPreviewAgent({
       appOrigin: input.appOrigin,
@@ -55,6 +58,7 @@ ${buildPageStyles()}
 <script>${agent}</script>
 <script>
 window.assetManifest = ${manifest};
+window.audioManifest = ${audioManifest};
 window.addEventListener(
   "pointerdown",
   function () {

@@ -3,6 +3,7 @@ import {
   resolveAssetUrl,
   type Catalog,
 } from "@/lib/assets/catalog";
+import { resolveAudioUrl, type AudioCatalog } from "@/lib/assets/audio-catalog";
 import { zodParser } from "@/lib/agents/parse";
 import type { GameSpec } from "@/lib/agents/spec/schema";
 import { toolInputSchema } from "@/lib/llm/json-schema";
@@ -25,6 +26,7 @@ const ASSET_MAP_INPUT_SCHEMA = toolInputSchema(assetMappingSchema);
 export interface AssetMapperInput {
   readonly spec: GameSpec;
   readonly catalog: Catalog;
+  readonly audioCatalog?: AudioCatalog;
   readonly client: LlmClient;
   readonly model: string;
   readonly signal: AbortSignal;
@@ -72,11 +74,20 @@ export function resolveManifest(options: {
   readonly spec: GameSpec;
   readonly catalog: Catalog;
   readonly supabaseUrl: string;
+  readonly audioCatalog?: AudioCatalog;
 }): ResolvedManifest {
-  const { mapping, spec, catalog, supabaseUrl } = options;
+  const { mapping, spec, catalog, supabaseUrl, audioCatalog } = options;
   const pathById = new Map(
     listRenderableAssets(catalog).map((asset) => [asset.id, asset.objectPath]),
   );
+
+  // Build a lookup for file-based audio ids -> object paths.
+  const audioPathById = new Map<string, string>();
+  if (audioCatalog !== undefined) {
+    for (const asset of audioCatalog.assets) {
+      audioPathById.set(asset.id, asset.objectPath);
+    }
+  }
 
   const sprites: Record<string, string | null> = {};
 
@@ -87,12 +98,28 @@ export function resolveManifest(options: {
     sprites[entity.id] = objectPath === undefined ? null : resolveAssetUrl(supabaseUrl, objectPath);
   }
 
-  const sounds: Record<string, SoundPreset> = {};
+  const sounds: Record<string, { preset?: SoundPreset; fileId?: string; url?: string }> = {};
 
   for (const assignment of mapping?.sounds ?? []) {
     // First assignment for an event wins; a duplicate is a model error, not a
     // reason to fail the run.
-    sounds[assignment.event] ??= assignment.preset;
+    if (sounds[assignment.event] !== undefined) continue;
+
+    if (assignment.fileId !== undefined && audioCatalog !== undefined) {
+      const objectPath = audioPathById.get(assignment.fileId);
+      if (objectPath !== undefined) {
+        sounds[assignment.event] = {
+          fileId: assignment.fileId,
+          url: resolveAudioUrl(supabaseUrl, objectPath),
+        };
+        continue;
+      }
+      // fileId not found in catalog — fall through to preset if available
+    }
+
+    if (assignment.preset !== undefined) {
+      sounds[assignment.event] = { preset: assignment.preset };
+    }
   }
 
   return resolvedManifestSchema.parse({ sprites, sounds });
@@ -113,6 +140,25 @@ export function projectLoadCodeAssets(
   for (const [entityId, url] of Object.entries(manifest.sprites)) {
     if (url !== null) {
       projected[entityId] = url;
+    }
+  }
+
+  return projected;
+}
+
+/**
+ * Extract the audio manifest for the sandbox: event name -> URL (file audio only).
+ * jsfxr presets are excluded because they don't need preloading — sound.js
+ * synthesizes them at runtime.
+ */
+export function projectAudioAssets(
+  manifest: ResolvedManifest,
+): Record<string, string> {
+  const projected: Record<string, string> = {};
+
+  for (const [event, sound] of Object.entries(manifest.sounds)) {
+    if ('url' in sound && sound.url !== undefined) {
+      projected[event] = sound.url;
     }
   }
 
