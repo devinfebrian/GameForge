@@ -2,6 +2,7 @@ import { buildPageStyles } from "@/lib/export/boot";
 import { escapeHtml, escapeInlineScript, stripModuleSyntax } from "@/lib/export/html";
 import { buildPhaserConfigExpression } from "@/lib/export/sandbox-config";
 import { PROTOCOL_VERSION } from "@/lib/sandbox/protocol";
+import { PIXEL_ART_HELPER } from "@/lib/sandbox/pixel-art";
 import { buildPreviewAgent } from "./agent";
 
 export interface PreviewDocumentInput {
@@ -28,6 +29,7 @@ export interface PreviewDocumentInput {
  */
 export function buildPreviewDocument(input: PreviewDocumentInput): string {
   const sound = escapeInlineScript(stripModuleSyntax(input.soundSource));
+  const helper = escapeInlineScript(PIXEL_ART_HELPER);
   const scene = escapeInlineScript(input.sceneSource);
   const manifest = escapeInlineScript(JSON.stringify(input.assetManifest));
   const audioManifest = escapeInlineScript(JSON.stringify(input.audioManifest ?? {}));
@@ -57,6 +59,7 @@ ${buildPageStyles()}
 <script>${scene}</script>
 <script>${agent}</script>
 <script>
+${helper}
 window.assetManifest = ${manifest};
 window.audioManifest = ${audioManifest};
 window.addEventListener(

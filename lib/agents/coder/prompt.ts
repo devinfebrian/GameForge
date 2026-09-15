@@ -10,13 +10,21 @@ import { PHASER4_SKILLS_PROMPT } from "./skills";
 export interface CoderPatchRequest {
   readonly instruction: string;
   readonly currentSource: string;
+  /**
+   * When true, the asset mapper picked different assets for this revision
+   * (e.g. user asked to change an avatar). The coder should use the updated
+   * manifest keys in preload.
+   */
+  readonly assetsChanged?: boolean;
 }
 
 /**
- * Emitted verbatim by the model whenever an entity needs procedural art.
+ * Emitted by the model whenever an entity needs procedural art.
  *
- * The helper is dictated rather than requested because a re-invented version is
- * the likeliest source of a runtime error in an otherwise good scene, and
+ * The helper is injected into every runtime as a global, so the coder only ever
+ * *calls* it — it must never be redefined or copied into the scene, because a
+ * half-copied version was the likeliest source of a runtime error (a scene that
+ * called makeTexturedSprite without defining it booted to a blank frame).
  * `textures.addCanvas` keeps procedural art in the same texture cache as real
  * sprites, so the rest of the scene treats both identically.
  */
@@ -114,7 +122,7 @@ Before your code runs a global "assetManifest" exists, mapping entity id to an a
 
 - In preload, for each entity the request lists as having a sprite, call this.load.image("<entity id>", assetManifest["<entity id>"]) — guarded, because assetManifest may be missing keys.
 - Never fetch, construct, or guess a URL. Never use a Phaser built-in or a texture key you did not load or generate.
-- For every entity the request lists with no sprite, define a pixel-art object and pass it to makeTexturedSprite in create, before it is used. Copy this helper unchanged:
+- For every entity the request lists with no sprite, define a pixel-art object and pass it to makeTexturedSprite in create, before it is used. makeTexturedSprite is already available as a global — call it directly, never redefine or copy it. Its exact definition, for reference only:
 
 ${PIXEL_ART_HELPER}
 
@@ -181,15 +189,19 @@ ${describeSounds(manifest)}`;
 ${design}`;
   }
 
+  const assetsNote = patch.assetsChanged
+    ? "\n\nNOTE: The asset manifest has been updated for this revision (new sprites or sounds). Make sure to preload and use all keys listed in the Entities/Sounds sections above."
+    : "";
+
   return `Revise the game below. Return the complete updated file — not a diff, not a fragment, and not an explanation.
 
-Requested change: ${patch.instruction}
+Requested change: ${patch.instruction}${assetsNote}
 
 Rules for this revision:
 - Change only what the request requires. Everything else must survive intact: entity ids, texture keys, control bindings, collision wiring and existing mechanics.
 - Re-read the current file before answering. Do not rebuild the game from the design summary, which describes the original version and may be out of date.
 - Keep every absolute rule from your system prompt: no imports, no eval, class MainScene extends Phaser.Scene, and the final window.__MAIN_SCENE__ assignment.
-- Load only the asset manifest keys listed below. Add nothing new to preload.
+- Load every asset manifest key listed below in preload. The manifest may include updated sprites or sounds for this revision — preload all of them.
 
 The original design, for reference only:
 

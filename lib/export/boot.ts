@@ -1,4 +1,5 @@
 import { escapeInlineScript } from "./html";
+import { PIXEL_ART_HELPER } from "@/lib/sandbox/pixel-art";
 import { buildPhaserConfigExpression, SANDBOX_GAME_CONFIG } from "./sandbox-config";
 
 /**
@@ -24,7 +25,9 @@ export function buildBootScript(
     ? escapeInlineScript(JSON.stringify(audioManifest))
     : "{}";
 
-  return `window.assetManifest = ${manifest};
+  return `${escapeInlineScript(PIXEL_ART_HELPER)}
+
+window.assetManifest = ${manifest};
 window.audioManifest = ${audio};
 
 window.addEventListener(

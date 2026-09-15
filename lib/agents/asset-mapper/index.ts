@@ -30,6 +30,12 @@ export interface AssetMapperInput {
   readonly client: LlmClient;
   readonly model: string;
   readonly signal: AbortSignal;
+  /**
+   * When present, the mapper is running in a patch context and should consider
+   * this instruction when choosing assets — e.g. "change the player avatar" means
+   * the mapper should pick a different sprite for the player entity.
+   */
+  readonly patchInstruction?: string;
 }
 
 export interface AssetMapperResult {
@@ -40,10 +46,17 @@ export interface AssetMapperResult {
 export async function runAssetMapper(
   input: AssetMapperInput,
 ): Promise<AssetMapperResult> {
+  const userPrompt = input.patchInstruction
+    ? `Map sprites and sounds for "${input.spec.title}", a ${input.spec.genre}.
+
+The player requested this change: "${input.patchInstruction}"
+If this change affects how entities should look (e.g. new avatar, different enemy style, changed theme), pick different assets that match the request. Otherwise, keep the current assignments.`
+    : `Map sprites and sounds for "${input.spec.title}", a ${input.spec.genre}.`;
+
   const { data, usage } = await input.client.generateStructured({
     model: input.model,
     system: buildAssetMapperSystemPrompt(input.catalog, input.spec),
-    user: `Map sprites and sounds for "${input.spec.title}", a ${input.spec.genre}.`,
+    user: userPrompt,
     toolName: ASSET_MAP_TOOL_NAME,
     toolDescription: "Submit the sprite and sound assignments for this game.",
     inputSchema: ASSET_MAP_INPUT_SCHEMA,

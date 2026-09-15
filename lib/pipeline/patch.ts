@@ -162,12 +162,14 @@ async function executePatch(
       client: deps.client,
       model: deps.models.asset_mapper,
       signal: deps.signal,
+      patchInstruction: request.instruction,
     });
 
     return { value: result.mapping, usage: result.usage };
   });
 
   let manifest: ResolvedManifest;
+  let assetsChanged = false;
 
   if (mapResult.ok) {
     const mapped = resolveManifest({
@@ -177,7 +179,9 @@ async function executePatch(
       supabaseUrl: deps.supabaseUrl,
     });
 
-    manifest = mergeManifests(base.manifest, mapped);
+    const merged = mergeManifests(base.manifest, mapped);
+    assetsChanged = JSON.stringify(merged) !== JSON.stringify(base.manifest);
+    manifest = merged;
   } else if (isAborting(mapResult.error)) {
     return { status: "aborted", tokensUsed: totalTokens() };
   } else {
@@ -250,6 +254,7 @@ async function executePatch(
       patch: {
         instruction: request.instruction,
         currentSource: base.sourceCode,
+        assetsChanged,
       },
     });
 

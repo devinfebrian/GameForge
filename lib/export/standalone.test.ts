@@ -16,6 +16,15 @@ const INPUT: StandaloneInput = {
 };
 
 describe("buildStandaloneHtml", () => {
+  test("injects the pixel-art helper before the game boots", () => {
+    const html = buildStandaloneHtml(INPUT);
+
+    expect(html).toContain("window.makeTexturedSprite = makeTexturedSprite");
+    expect(html.indexOf("makeTexturedSprite")).toBeLessThan(
+      html.indexOf("new Phaser.Game("),
+    );
+  });
+
   test("loads the runtime in dependency order", () => {
     const html = buildStandaloneHtml(INPUT);
 
