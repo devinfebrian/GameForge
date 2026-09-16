@@ -1,4 +1,4 @@
-import { resolveManifest, runAssetMapper } from "@/lib/agents/asset-mapper";
+import { defaultSynthesizedSounds, resolveManifest, runAssetMapper } from "@/lib/agents/asset-mapper";
 import type { AssetMapping, ResolvedManifest } from "@/lib/agents/asset-mapper/schema";
 import { runCoderAgent } from "@/lib/agents/coder";
 import { runSpecAgent } from "@/lib/agents/spec";
@@ -11,6 +11,8 @@ import {
   toGenerationError,
   type GenerationErrorCode,
 } from "@/lib/llm/errors";
+import type { LlmEndpoint, LlmFallback, LlmRoute } from "@/lib/llm/failover";
+import { isProviderUnavailable, runStageWithFallback } from "@/lib/llm/failover";
 import type { AgentModels, LlmClient, LlmUsage } from "@/lib/llm/types";
 import { EMPTY_USAGE, addUsage } from "@/lib/llm/types";
 import type { SseFrame, UsageData } from "@/lib/pipeline/events";
@@ -28,6 +30,10 @@ export interface GenerationRequest {
 export interface GenerationDependencies {
   readonly client: LlmClient;
   readonly models: AgentModels;
+  /** Per-stage fallback endpoints; absent or null means primary-only. */
+  readonly fallback?: LlmFallback | null;
+  /** `llm` skips the Asset Mapper so the coder draws everything procedurally. */
+  readonly assetMode?: "kenney" | "llm";
   readonly catalog: Catalog;
   readonly supabaseUrl: string;
   readonly persist: (input: PersistGenerationInput) => Promise<PersistedGeneration>;
@@ -57,6 +63,7 @@ export type GenerationOutcome =
 interface StageSuccess<T> {
   readonly ok: true;
   readonly value: T;
+  readonly endpoint: LlmEndpoint;
 }
 
 interface StageFailure {
@@ -137,14 +144,83 @@ async function executeGeneration(
     outputTokens: usage.outputTokens,
   });
 
+  // Tracks which stage fell back and why, so the persisted transcript records
+  // the gateway that actually produced the answer rather than the primary.
+  const fallbackByStage = new Map<
+    GenerationStage,
+    { readonly provider: string; readonly reason: string }
+  >();
+
+  const routeFor = (stage: GenerationStage): LlmRoute => ({
+    primary: { provider: "anthropic", client: deps.client, model: deps.models[stage] },
+    fallback: deps.fallback?.endpoints[stage] ?? null,
+  });
+
+  /**
+   * The run is about to stop because `stage` failed and the primary provider
+   * could not take the request (quota, rate limit, or a rejected credential)
+   * with no fallback to route around it. Surface that distinctly: a generic
+   * stage failure would hide that a backup would have helped.
+   */
+  const emitNoFallbackWarning = (stage: GenerationStage, failure: GenerationError): void => {
+    if (routeFor(stage).fallback !== null || !isProviderUnavailable(failure)) {
+      return;
+    }
+
+    deps.emit({
+      event: "warning",
+      data: {
+        stage,
+        code: "provider_exhausted",
+        message: `The primary provider could not take the ${stage} request: ${failure.message} No fallback is configured, so the run stopped here.`,
+      },
+    });
+  };
+
+  // The assistant transcript is written for the coder's output, so its provider,
+  // fallback flag and reason describe the coder stage specifically.
+  const coderAttribution = (): {
+    readonly provider: string;
+    readonly isFallback: boolean;
+    readonly fallbackReason: string | null;
+  } => {
+    const fallback = fallbackByStage.get("coder");
+
+    return {
+      provider: fallback?.provider ?? "anthropic",
+      isFallback: fallback !== undefined,
+      fallbackReason: fallback?.reason ?? null,
+    };
+  };
+
   async function attemptStage<T>(
     stage: GenerationStage,
-    body: () => Promise<{ readonly value: T; readonly usage: LlmUsage }>,
+    route: LlmRoute,
+    body: (
+      endpoint: LlmEndpoint,
+    ) => Promise<{ readonly value: T; readonly usage: LlmUsage }>,
   ): Promise<StageSuccess<T> | StageFailure> {
     deps.emit({ event: "stage.started", data: { stage } });
 
     try {
-      const result = await body();
+      const result = await runStageWithFallback(route, body, (endpoint, primaryError) => {
+        const reason =
+          primaryError instanceof GenerationError
+            ? primaryError.message
+            : "unknown error";
+
+        fallbackByStage.set(stage, { provider: endpoint.provider, reason });
+
+        deps.emit({
+          event: "warning",
+          data: {
+            stage,
+            code: "provider_fallback",
+            message: `Primary provider failed; retrying on ${endpoint.provider}. ${reason}`,
+          },
+        });
+      });
+
       usage = addUsage(usage, result.usage);
       deps.emit({
         event: "stage.completed",
@@ -155,7 +231,8 @@ async function executeGeneration(
         },
       });
       deps.emit({ event: "usage", data: cumulative() });
-      return { ok: true, value: result.value };
+
+      return { ok: true, value: result.value, endpoint: result.endpoint };
     } catch (error) {
       // A stage can fail after the provider has already billed for its response
       // (a bad payload, a rejected tool call). Those tokens still count, so they
@@ -175,6 +252,8 @@ async function executeGeneration(
   function failWithoutPersist(error: unknown, stage: GenerationStage, code: GenerationErrorCode) {
     const failure = toGenerationError(error, stage, code);
 
+    emitNoFallbackWarning(stage, failure);
+
     return {
       status: "failed",
       code: failure.code,
@@ -193,6 +272,9 @@ async function executeGeneration(
     manifest: ResolvedManifest,
   ): Promise<GenerationOutcome> {
     const failure = toGenerationError(error, stage, code);
+    const attribution = coderAttribution();
+
+    emitNoFallbackWarning(stage, failure);
 
     try {
       const persisted = await deps.persist({
@@ -205,6 +287,9 @@ async function executeGeneration(
         errorLog: `${failure.code}: ${failure.message}`,
         promoteCurrent: false,
         modelUsed: deps.models.coder,
+        provider: attribution.provider,
+        isFallback: attribution.isFallback,
+        fallbackReason: attribution.fallbackReason,
         tokensUsed: totalTokens(),
         executionTimeMs: elapsed(),
         assistantMessage: spec.summary,
@@ -240,12 +325,12 @@ async function executeGeneration(
   deps.emit({ event: "run.started", data: { gameId: request.gameId } });
 
   // --- Spec ---
-  const specResult = await attemptStage("spec", async () => {
+  const specResult = await attemptStage("spec", routeFor("spec"), async (endpoint) => {
     const result = await runSpecAgent({
       prompt: request.prompt,
       catalog: deps.catalog,
-      client: deps.client,
-      model: deps.models.spec,
+      client: endpoint.client,
+      model: endpoint.model,
       signal: deps.signal,
     });
 
@@ -263,51 +348,65 @@ async function executeGeneration(
   const spec = specResult.value;
 
   // --- Asset Mapper (advisory: failure degrades, it does not abort the run) ---
-  const mapResult = await attemptStage("asset_mapper", async () => {
-    const result = await runAssetMapper({
-      spec,
-      catalog: deps.catalog,
-      client: deps.client,
-      model: deps.models.asset_mapper,
-      signal: deps.signal,
-    });
-
-    return { value: result.mapping, usage: result.usage };
-  });
-
+  //
+  // In `llm` asset mode the mapper is skipped entirely: the coder is expected to
+  // draw every entity procedurally via `makeTexturedSprite`, so a mapping call
+  // would only spend tokens deciding assignments the coder is about to ignore.
   let mapping: AssetMapping | null = null;
 
-  if (mapResult.ok) {
-    mapping = mapResult.value;
-  } else if (isAborting(mapResult.error)) {
-    return { status: "aborted", tokensUsed: totalTokens() };
-  } else {
-    const warning = toGenerationError(mapResult.error, "asset_mapper", "asset_mapper_failed");
+  if (deps.assetMode !== "llm") {
+    const mapResult = await attemptStage("asset_mapper", routeFor("asset_mapper"), async (endpoint) => {
+      const result = await runAssetMapper({
+        spec,
+        catalog: deps.catalog,
+        client: endpoint.client,
+        model: endpoint.model,
+        signal: deps.signal,
+      });
 
-    deps.emit({
-      event: "warning",
-      data: {
-        stage: "asset_mapper",
-        code: "mapper_degraded",
-        message: `Sprite mapping failed; every entity will be drawn procedurally. ${warning.message}`,
-      },
+      return { value: result.mapping, usage: result.usage };
     });
+
+    if (mapResult.ok) {
+      mapping = mapResult.value;
+    } else if (isAborting(mapResult.error)) {
+      return { status: "aborted", tokensUsed: totalTokens() };
+    } else {
+      const warning = toGenerationError(mapResult.error, "asset_mapper", "asset_mapper_failed");
+
+      deps.emit({
+        event: "warning",
+        data: {
+          stage: "asset_mapper",
+          code: "mapper_degraded",
+          message: `Sprite mapping failed; every entity will be drawn procedurally. ${warning.message}`,
+        },
+      });
+    }
   }
 
-  const manifest = resolveManifest({
+  const rawManifest = resolveManifest({
     mapping,
     spec,
     catalog: deps.catalog,
     supabaseUrl: deps.supabaseUrl,
   });
 
+  const manifest: ResolvedManifest =
+    deps.assetMode === "llm" || Object.keys(rawManifest.sounds).length === 0
+      ? {
+          ...rawManifest,
+          sounds: { ...defaultSynthesizedSounds(spec), ...rawManifest.sounds },
+        }
+      : rawManifest;
+
   // --- Coder ---
-  const coderResult = await attemptStage("coder", async () => {
+  const coderResult = await attemptStage("coder", routeFor("coder"), async (endpoint) => {
     const result = await runCoderAgent({
       spec,
       manifest,
-      client: deps.client,
-      model: deps.models.coder,
+      client: endpoint.client,
+      model: endpoint.model,
       signal: deps.signal,
     });
 
@@ -323,6 +422,8 @@ async function executeGeneration(
   }
 
   // --- Commit ---
+  const attribution = coderAttribution();
+
   try {
     const persisted = await deps.persist({
       userId: request.userId,
@@ -336,7 +437,10 @@ async function executeGeneration(
       // last_stable_version_id is Phase 5's to set. This only moves the pointer
       // the Studio should be showing.
       promoteCurrent: true,
-      modelUsed: deps.models.coder,
+      modelUsed: coderResult.endpoint.model,
+      provider: attribution.provider,
+      isFallback: attribution.isFallback,
+      fallbackReason: attribution.fallbackReason,
       tokensUsed: totalTokens(),
       executionTimeMs: elapsed(),
       assistantMessage: spec.summary,

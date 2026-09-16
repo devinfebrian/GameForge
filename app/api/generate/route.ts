@@ -6,6 +6,7 @@ import { findOwnedGame } from "@/lib/games/repository";
 import { beginGenerationRun, finishGenerationRun, type RunStatus } from "@/lib/games/run-guard";
 import { getPublicEnv } from "@/lib/env/public";
 import { getServerEnv } from "@/lib/env/server";
+import { loadAppSettings } from "@/lib/llm/config";
 import { createPostgresQuotaStore } from "@/lib/quota/postgres-store";
 import { runGeneration } from "@/lib/pipeline/generate";
 import { preStreamFailure } from "@/lib/pipeline/http-status";
@@ -70,14 +71,22 @@ export async function POST(request: Request): Promise<Response> {
   // generation offline and nothing else.
   const env = getServerEnv();
 
+  // Global admin switches. Read once up front: asset mode reaches the pipeline,
+  // and token-limit mode decides whether the quota gate below runs at all.
+  const settings = await loadAppSettings();
+
   // Refused before the model is resolved and before the run slot is claimed, so
-  // an over-budget or rate-limited caller never reaches a billable call.
+  // an over-budget or rate-limited caller never reaches a billable call. In
+  // `limitless` mode the gate is skipped entirely — the admin's testing hatch.
   const quota = createPostgresQuotaStore({
     dailyTokenBudget: env.dailyTokenBudget,
     runBurstPerMinute: env.runBurstPerMinute,
   });
 
-  const refusal = await quota.checkRunAllowed(profile.id, profile.role === "admin");
+  const refusal =
+    settings.tokenLimitMode === "limitless"
+      ? null
+      : await quota.checkRunAllowed(profile.id, profile.role === "admin");
 
   if (refusal !== null) {
     return preStreamFailure(refusal.code, refusal.message);
@@ -89,7 +98,7 @@ export async function POST(request: Request): Promise<Response> {
     return bootstrap.response;
   }
 
-  const { client, models } = bootstrap;
+  const { client, models, fallback } = bootstrap;
 
   // Claimed before the stream opens, so an overlapping run is a real 409 rather
   // than an in-band error on a 200 response. Released in the stream's finally.
@@ -113,6 +122,8 @@ export async function POST(request: Request): Promise<Response> {
           {
             client,
             models,
+            fallback,
+            assetMode: settings.assetMode,
             catalog: catalogSchema.parse(catalogJson),
             supabaseUrl: getPublicEnv().supabaseUrl,
             persist: persistGeneration,

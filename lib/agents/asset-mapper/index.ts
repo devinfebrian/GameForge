@@ -214,3 +214,37 @@ export function mergeManifests(
     sounds: { ...base.sounds, ...next.sounds },
   });
 }
+
+/**
+ * Infers standard synthesized sound presets (laser, coin, hit, jump, etc.)
+ * from a game specification. Ensures that games generated in `llm` asset mode
+ * or with empty audio mappings still provide interactive audio feedback.
+ */
+export function defaultSynthesizedSounds(
+  spec: GameSpec,
+): Record<string, { preset: SoundPreset }> {
+  const sounds: Record<string, { preset: SoundPreset }> = {};
+
+  if (spec.entities.some((e) => e.kind === "collectible")) {
+    sounds["collect"] = { preset: "pickup" };
+  }
+  if (spec.entities.some((e) => e.kind === "projectile")) {
+    sounds["shoot"] = { preset: "laser" };
+  }
+  if (spec.entities.some((e) => e.kind === "enemy")) {
+    sounds["enemy_hit"] = { preset: "hit" };
+    sounds["enemy_defeat"] = { preset: "explosion" };
+  }
+  const hasJump = spec.controls.some(
+    (c) =>
+      c.action.toLowerCase().includes("jump") ||
+      c.keys.some((k) => k === "Space" || k === "ArrowUp" || k === "KeyW"),
+  );
+  if (hasJump) {
+    sounds["jump"] = { preset: "jump" };
+  }
+  sounds["game_over"] = { preset: "explosion" };
+  sounds["level_clear"] = { preset: "powerup" };
+
+  return sounds;
+}

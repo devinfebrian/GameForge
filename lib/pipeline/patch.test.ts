@@ -71,6 +71,7 @@ interface HarnessOptions {
   readonly code?: Producer<string>;
   readonly persistThrows?: boolean;
   readonly abortDuringCoder?: boolean;
+  readonly assetMode?: "kenney" | "llm";
 }
 
 interface HarnessResult {
@@ -110,6 +111,7 @@ async function runHarness(options: HarnessOptions = {}): Promise<HarnessResult> 
   const deps: PatchDependencies = {
     client,
     models: MODELS,
+    assetMode: options.assetMode,
     catalog,
     supabaseUrl: SUPABASE_URL,
     persist: async (input) => {
@@ -249,5 +251,43 @@ describe("runPatch", () => {
     if (outcome.status === "failed") {
       expect(outcome.versionId).toBeNull();
     }
+  });
+});
+
+describe("runPatch — llm asset mode", () => {
+  test("skips the mapper and keeps the existing manifest unchanged", async () => {
+    const { outcome, frames, persistCalls } = await runHarness({ assetMode: "llm" });
+
+    expect(outcome.status).toBe("completed");
+
+    const stages = frames
+      .filter((frame) => frame.event === "stage.started")
+      .map((frame) => (frame.data as { stage: string }).stage);
+
+    expect(stages).toEqual(["coder"]);
+    expect(persistCalls[0].manifest).toEqual(BASE_MANIFEST);
+  });
+});
+
+describe("runPatch — provider unavailable with no fallback", () => {
+  test("emits a provider_exhausted warning before failing", async () => {
+    const { outcome, frames } = await runHarness({
+      code: () => {
+        throw new GenerationError(
+          "provider_error",
+          "The model gateway returned an unexpected error (HTTP 429).",
+        );
+      },
+    });
+
+    expect(outcome.status).toBe("failed");
+
+    const exhausted = frames.find(
+      (frame) =>
+        frame.event === "warning" &&
+        (frame.data as { code: string }).code === "provider_exhausted",
+    );
+
+    expect(exhausted).toBeDefined();
   });
 });

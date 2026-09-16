@@ -100,6 +100,7 @@ function createFakeClient(options: FakeClientOptions): LlmClient {
 interface RunOptions extends FakeClientOptions {
   readonly persistThrows?: boolean;
   readonly abortDuring?: "spec" | "asset_mapper" | "coder";
+  readonly assetMode?: "kenney" | "llm";
 }
 
 async function runPipeline(options: RunOptions = {}) {
@@ -134,6 +135,7 @@ async function runPipeline(options: RunOptions = {}) {
       code: forStage("coder", options.code, async () => SCENE),
     }),
     models: MODELS,
+    assetMode: options.assetMode,
     catalog,
     supabaseUrl: SUPABASE_URL,
     persist: async (input) => {
@@ -380,6 +382,69 @@ describe("runGeneration — abort", () => {
 
     expect(outcome.status).toBe("aborted");
     expect(persistCalls).toHaveLength(0);
+  });
+});
+
+describe("runGeneration — llm asset mode", () => {
+  test("skips the Asset Mapper and resolves an all-procedural manifest", async () => {
+    const { outcome, frames, firstPersist } = await runPipeline({ assetMode: "llm" });
+
+    expect(outcome.status).toBe("completed");
+
+    const stages = frames
+      .filter((frame) => frame.event === "stage.started")
+      .map((frame) => (frame.data as { stage: string }).stage);
+
+    expect(stages).toEqual(["spec", "coder"]);
+    expect(firstPersist.manifest.sprites).toEqual({ player: null, enemy: null });
+    // One structured call (spec) instead of two: the mapper's tokens were never spent.
+    expect(firstPersist.tokensUsed).toBe(
+      STRUCTURED_USAGE.inputTokens +
+        STRUCTURED_USAGE.outputTokens +
+        TEXT_USAGE.inputTokens +
+        TEXT_USAGE.outputTokens,
+    );
+  });
+});
+
+describe("runGeneration — provider unavailable with no fallback", () => {
+  test("emits a provider_exhausted warning and preserves the provider code", async () => {
+    const { outcome, frames } = await runPipeline({
+      spec: () => {
+        throw new GenerationError(
+          "provider_error",
+          "The model gateway returned an unexpected error (HTTP 429).",
+        );
+      },
+    });
+
+    expect(outcome.status).toBe("failed");
+    expect(outcome.status === "failed" && outcome.code).toBe("provider_error");
+
+    const exhausted = frames.find(
+      (frame) =>
+        frame.event === "warning" &&
+        (frame.data as { code: string }).code === "provider_exhausted",
+    );
+
+    expect(exhausted).toBeDefined();
+    expect((exhausted?.data as { message: string }).message).toContain("No fallback is configured");
+  });
+
+  // A malformed-output failure is not a provider outage: the model answered, the
+  // output just failed validation. "No fallback" is not the diagnosis there.
+  test("does not emit provider_exhausted for a malformed-output failure", async () => {
+    const { frames } = await runPipeline({
+      spec: async () => ({ ...VALID_SPEC, entities: [] }),
+    });
+
+    const exhausted = frames.find(
+      (frame) =>
+        frame.event === "warning" &&
+        (frame.data as { code: string }).code === "provider_exhausted",
+    );
+
+    expect(exhausted).toBeUndefined();
   });
 });
 

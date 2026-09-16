@@ -6,6 +6,7 @@ import {
   GENERATION_STAGES,
   STAGE_AGENT_TYPE,
   type AgentType,
+  type GenerationStage,
 } from "@/lib/agents/types";
 import { decryptSecret, parseEncryptionKey } from "@/lib/crypto/secrets";
 import { GenerationError } from "@/lib/llm/errors";
@@ -119,6 +120,68 @@ export async function loadDebugModel(): Promise<string> {
   return row.model_name;
 }
 
+const fallbackRowSchema = z.object({
+  agent_type: z.enum(AGENT_TYPES),
+  fallback_provider: z.string().nullable(),
+  fallback_model_name: z.string().nullable(),
+});
+
+/** A fallback provider + model an agent may fail over to. */
+export interface FallbackModel {
+  readonly provider: string;
+  readonly model: string;
+}
+
+/**
+ * The per-stage fallback assignment, keyed by generation stage.
+ *
+ * A stage with no fallback is simply absent: the pipeline then runs that stage
+ * primary-only. Fallbacks are advisory by design — a broken backup must not take
+ * a healthy primary offline, so resolution failures degrade to `null` upstream.
+ */
+export async function loadFallbackModels(): Promise<
+  Readonly<Partial<Record<GenerationStage, FallbackModel>>>
+> {
+  const { data, error } = await createAdminClient()
+    .from("llm_configurations")
+    .select("agent_type, fallback_provider, fallback_model_name")
+    .eq("is_active", true);
+
+  if (error !== null) {
+    throw new GenerationError(
+      "config_missing",
+      "Could not read the fallback LLM configuration.",
+      { cause: error.message },
+    );
+  }
+
+  const byAgent = new Map<AgentType, FallbackModel>();
+
+  for (const raw of data ?? []) {
+    const row = fallbackRowSchema.parse(raw);
+
+    // The pair CHECK constraint guarantees both are set together; the row-level
+    // guard is still defensive rather than trusting it.
+    if (row.fallback_provider !== null && row.fallback_model_name !== null) {
+      byAgent.set(row.agent_type, {
+        provider: row.fallback_provider,
+        model: row.fallback_model_name,
+      });
+    }
+  }
+
+  const result: Partial<Record<GenerationStage, FallbackModel>> = {};
+
+  for (const stage of GENERATION_STAGES) {
+    const fallback = byAgent.get(STAGE_AGENT_TYPE[stage]);
+    if (fallback !== undefined) {
+      result[stage] = fallback;
+    }
+  }
+
+  return result;
+}
+
 const gatewayKeyRowSchema = z.object({
   agent_type: z.enum(AGENT_TYPES),
   api_key_override_encrypted: z.string().nullable(),
@@ -219,4 +282,62 @@ export async function loadGatewayCredential(
   }
 
   return state.kind === "set" ? state.credential : null;
+}
+
+const appSettingRowSchema = z.object({
+  key: z.string().min(1),
+  value: z.string().min(1),
+});
+
+const appSettingsSchema = z
+  .object({
+    asset_mode: z.enum(["kenney", "llm"]).default("kenney"),
+    token_limit_mode: z.enum(["limited", "limitless"]).default("limited"),
+  })
+  .transform(({ asset_mode, token_limit_mode }) => ({
+    assetMode: asset_mode,
+    tokenLimitMode: token_limit_mode,
+  }));
+
+export type AppSettings = z.output<typeof appSettingsSchema>;
+
+/**
+ * The global admin switches a run consults.
+ *
+ * - `assetMode` decides whether the Asset Mapper runs at all. `kenney` maps
+ *   catalog sprites (procedural fallback); `llm` skips the mapper so the coder
+ *   draws every entity procedurally via `makeTexturedSprite`.
+ * - `tokenLimitMode` decides whether the quota gate applies. `limited` enforces
+ *   the daily budget + burst limiter; `limitless` is the admin testing hatch.
+ *
+ * Fail-safe on purpose: a read failure returns `kenney` + `limited` — the exact
+ * behaviour that predates both switches — so a missing or unreadable settings
+ * table can neither take generation offline nor silently remove the spend guard.
+ */
+export async function loadAppSettings(): Promise<AppSettings> {
+  try {
+    const { data, error } = await createAdminClient()
+      .from("app_settings")
+      .select("key, value");
+
+    if (error !== null) {
+      throw error;
+    }
+
+    const raw: Record<string, string> = {};
+
+    for (const row of data ?? []) {
+      const parsed = appSettingRowSchema.parse(row);
+      raw[parsed.key] = parsed.value;
+    }
+
+    return appSettingsSchema.parse(raw);
+  } catch (error) {
+    console.error(
+      "[config] failed to read app settings; falling back to safe defaults",
+      error,
+    );
+
+    return { assetMode: "kenney", tokenLimitMode: "limited" };
+  }
 }

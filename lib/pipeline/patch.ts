@@ -1,10 +1,13 @@
-import { mergeManifests, resolveManifest, runAssetMapper } from "@/lib/agents/asset-mapper";
+import { defaultSynthesizedSounds, mergeManifests, resolveManifest, runAssetMapper } from "@/lib/agents/asset-mapper";
 import type { ResolvedManifest } from "@/lib/agents/asset-mapper/schema";
 import { runCoderAgent } from "@/lib/agents/coder";
 import type { GenerationStage } from "@/lib/agents/types";
 import type { Catalog } from "@/lib/assets/catalog";
 import type { PatchBase } from "@/lib/games/repository";
 import { isAbortError, toGenerationError } from "@/lib/llm/errors";
+import { GenerationError } from "@/lib/llm/errors";
+import type { LlmEndpoint, LlmFallback, LlmRoute } from "@/lib/llm/failover";
+import { isProviderUnavailable, runStageWithFallback } from "@/lib/llm/failover";
 import type { AgentModels, LlmClient, LlmUsage } from "@/lib/llm/types";
 import { EMPTY_USAGE, addUsage } from "@/lib/llm/types";
 import type { SseFrame, UsageData } from "@/lib/pipeline/events";
@@ -25,6 +28,10 @@ export interface PatchRequest {
 export interface PatchDependencies {
   readonly client: LlmClient;
   readonly models: AgentModels;
+  /** Per-stage fallback endpoints; absent or null means primary-only. */
+  readonly fallback?: LlmFallback | null;
+  /** `llm` skips the Asset Mapper so the coder draws everything procedurally. */
+  readonly assetMode?: "kenney" | "llm";
   readonly catalog: Catalog;
   readonly supabaseUrl: string;
   readonly persist: (input: PersistGenerationInput) => Promise<PersistedGeneration>;
@@ -102,7 +109,7 @@ export async function runPatch(
 }
 
 type StageResult<T> =
-  | { readonly ok: true; readonly value: T }
+  | { readonly ok: true; readonly value: T; readonly endpoint: LlmEndpoint }
   | { readonly ok: false; readonly error: unknown };
 
 async function executePatch(
@@ -127,14 +134,83 @@ async function executePatch(
     outputTokens: usage.outputTokens,
   });
 
+  // Tracks which stage fell back and why, so the persisted transcript records
+  // the gateway that actually produced the answer rather than the primary.
+  const fallbackByStage = new Map<
+    GenerationStage,
+    { readonly provider: string; readonly reason: string }
+  >();
+
+  const routeFor = (stage: GenerationStage): LlmRoute => ({
+    primary: { provider: "anthropic", client: deps.client, model: deps.models[stage] },
+    fallback: deps.fallback?.endpoints[stage] ?? null,
+  });
+
+  /**
+   * The run is about to stop because the coder failed and the primary provider
+   * could not take the request (quota, rate limit, or a rejected credential)
+   * with no fallback to route around it. Surface that distinctly: a generic
+   * stage failure would hide that a backup would have helped.
+   */
+  const emitNoFallbackWarning = (stage: GenerationStage, failure: GenerationError): void => {
+    if (routeFor(stage).fallback !== null || !isProviderUnavailable(failure)) {
+      return;
+    }
+
+    deps.emit({
+      event: "warning",
+      data: {
+        stage,
+        code: "provider_exhausted",
+        message: `The primary provider could not take the ${stage} request: ${failure.message} No fallback is configured, so the run stopped here.`,
+      },
+    });
+  };
+
+  // The assistant transcript is written for the coder's output, so its provider,
+  // fallback flag and reason describe the coder stage specifically.
+  const coderAttribution = (): {
+    readonly provider: string;
+    readonly isFallback: boolean;
+    readonly fallbackReason: string | null;
+  } => {
+    const fallback = fallbackByStage.get("coder");
+
+    return {
+      provider: fallback?.provider ?? "anthropic",
+      isFallback: fallback !== undefined,
+      fallbackReason: fallback?.reason ?? null,
+    };
+  };
+
   async function attemptStage<T>(
     stage: GenerationStage,
-    body: () => Promise<{ readonly value: T; readonly usage: LlmUsage }>,
+    route: LlmRoute,
+    body: (
+      endpoint: LlmEndpoint,
+    ) => Promise<{ readonly value: T; readonly usage: LlmUsage }>,
   ): Promise<StageResult<T>> {
     deps.emit({ event: "stage.started", data: { stage } });
 
     try {
-      const result = await body();
+      const result = await runStageWithFallback(route, body, (endpoint, primaryError) => {
+        const reason =
+          primaryError instanceof GenerationError
+            ? primaryError.message
+            : "unknown error";
+
+        fallbackByStage.set(stage, { provider: endpoint.provider, reason });
+
+        deps.emit({
+          event: "warning",
+          data: {
+            stage,
+            code: "provider_fallback",
+            message: `Primary provider failed; retrying on ${endpoint.provider}. ${reason}`,
+          },
+        });
+      });
+
       usage = addUsage(usage, result.usage);
       deps.emit({
         event: "stage.completed",
@@ -146,7 +222,7 @@ async function executePatch(
       });
       deps.emit({ event: "usage", data: cumulative() });
 
-      return { ok: true, value: result.value };
+      return { ok: true, value: result.value, endpoint: result.endpoint };
     } catch (error) {
       return { ok: false, error };
     }
@@ -155,52 +231,69 @@ async function executePatch(
   deps.emit({ event: "run.started", data: { gameId: request.gameId } });
 
   // --- Asset Mapper (advisory) ---
-  const mapResult = await attemptStage("asset_mapper", async () => {
-    const result = await runAssetMapper({
-      spec: base.spec,
-      catalog: deps.catalog,
-      client: deps.client,
-      model: deps.models.asset_mapper,
-      signal: deps.signal,
-      patchInstruction: request.instruction,
-    });
-
-    return { value: result.mapping, usage: result.usage };
-  });
-
+  //
+  // Skipped in `llm` asset mode: the coder owns all art, so a mapping call would
+  // spend tokens deciding assignments it ignores. The existing manifest (already
+  // all-procedural for an `llm`-mode game) is carried through unchanged.
   let manifest: ResolvedManifest;
   let assetsChanged = false;
 
-  if (mapResult.ok) {
-    const mapped = resolveManifest({
-      mapping: mapResult.value,
-      spec: base.spec,
-      catalog: deps.catalog,
-      supabaseUrl: deps.supabaseUrl,
-    });
-
-    const merged = mergeManifests(base.manifest, mapped);
-    assetsChanged = JSON.stringify(merged) !== JSON.stringify(base.manifest);
-    manifest = merged;
-  } else if (isAborting(mapResult.error)) {
-    return { status: "aborted", tokensUsed: totalTokens() };
+  if (deps.assetMode === "llm") {
+    manifest =
+      Object.keys(base.manifest.sounds).length > 0
+        ? base.manifest
+        : {
+            ...base.manifest,
+            sounds: defaultSynthesizedSounds(base.spec),
+          };
   } else {
-    const warning = toGenerationError(mapResult.error, "asset_mapper", "asset_mapper_failed");
+    const mapResult = await attemptStage("asset_mapper", routeFor("asset_mapper"), async (endpoint) => {
+      const result = await runAssetMapper({
+        spec: base.spec,
+        catalog: deps.catalog,
+        client: endpoint.client,
+        model: endpoint.model,
+        signal: deps.signal,
+        patchInstruction: request.instruction,
+      });
 
-    deps.emit({
-      event: "warning",
-      data: {
-        stage: "asset_mapper",
-        code: "mapper_degraded",
-        message: `Sprite mapping failed; the existing art is unchanged. ${warning.message}`,
-      },
+      return { value: result.mapping, usage: result.usage };
     });
 
-    manifest = base.manifest;
+    if (mapResult.ok) {
+      const mapped = resolveManifest({
+        mapping: mapResult.value,
+        spec: base.spec,
+        catalog: deps.catalog,
+        supabaseUrl: deps.supabaseUrl,
+      });
+
+      const merged = mergeManifests(base.manifest, mapped);
+      assetsChanged = JSON.stringify(merged) !== JSON.stringify(base.manifest);
+      manifest = merged;
+    } else if (isAborting(mapResult.error)) {
+      return { status: "aborted", tokensUsed: totalTokens() };
+    } else {
+      const warning = toGenerationError(mapResult.error, "asset_mapper", "asset_mapper_failed");
+
+      deps.emit({
+        event: "warning",
+        data: {
+          stage: "asset_mapper",
+          code: "mapper_degraded",
+          message: `Sprite mapping failed; the existing art is unchanged. ${warning.message}`,
+        },
+      });
+
+      manifest = base.manifest;
+    }
   }
 
   async function failWithVersion(error: unknown): Promise<PatchOutcome> {
     const failure = toGenerationError(error, "coder", "coder_failed");
+    const attribution = coderAttribution();
+
+    emitNoFallbackWarning("coder", failure);
 
     try {
       const persisted = await deps.persist({
@@ -215,6 +308,9 @@ async function executePatch(
         // replace a version that still plays.
         promoteCurrent: false,
         modelUsed: deps.models.coder,
+        provider: attribution.provider,
+        isFallback: attribution.isFallback,
+        fallbackReason: attribution.fallbackReason,
         tokensUsed: totalTokens(),
         executionTimeMs: elapsed(),
         assistantMessage: `Patch failed: ${failure.message}`,
@@ -244,12 +340,12 @@ async function executePatch(
   }
 
   // --- Coder, revising the current source ---
-  const coderResult = await attemptStage("coder", async () => {
+  const coderResult = await attemptStage("coder", routeFor("coder"), async (endpoint) => {
     const result = await runCoderAgent({
       spec: base.spec,
       manifest,
-      client: deps.client,
-      model: deps.models.coder,
+      client: endpoint.client,
+      model: endpoint.model,
       signal: deps.signal,
       patch: {
         instruction: request.instruction,
@@ -270,6 +366,8 @@ async function executePatch(
   }
 
   // --- Commit ---
+  const attribution = coderAttribution();
+
   try {
     const persisted = await deps.persist({
       userId: request.userId,
@@ -280,7 +378,10 @@ async function executePatch(
       sourceCode: coderResult.value,
       errorLog: null,
       promoteCurrent: true,
-      modelUsed: deps.models.coder,
+      modelUsed: coderResult.endpoint.model,
+      provider: attribution.provider,
+      isFallback: attribution.isFallback,
+      fallbackReason: attribution.fallbackReason,
       tokensUsed: totalTokens(),
       executionTimeMs: elapsed(),
       assistantMessage: patchAssistantMessage(request.instruction),

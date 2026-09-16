@@ -56,12 +56,14 @@ ${buildPageStyles()}
 <script src="/sandbox/vendor/jsfxr/sfxr.js"></script>
 <script src="/sandbox/vendor/phaser.min.js"></script>
 <script>${sound}</script>
+<script>${helper}</script>
+<script>
+window.assetManifest = ${manifest};
+window.audioManifest = ${audioManifest};
+</script>
 <script>${scene}</script>
 <script>${agent}</script>
 <script>
-${helper}
-window.assetManifest = ${manifest};
-window.audioManifest = ${audioManifest};
 window.addEventListener(
   "pointerdown",
   function () {

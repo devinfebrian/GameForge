@@ -43,6 +43,7 @@ interface AdminWriteCall {
 interface QueryChain {
   select: () => QueryChain;
   update: (values: Record<string, unknown>) => QueryChain;
+  upsert: (values: Record<string, unknown>, options?: unknown) => QueryChain;
   eq: (column: string, value: unknown) => QueryChain;
   is: (column: string, value: unknown) => QueryChain;
   in: (column: string, values: ReadonlyArray<unknown>) => QueryChain;
@@ -87,6 +88,14 @@ function createQueryChain(table: string): QueryChain {
       adminDouble.writeCalls.push({ table, values, filters });
 
       return chain;
+    },
+    upsert: (values) => {
+      adminDouble.writeCalls.push({ table, values, filters });
+
+      return {
+        then: (onFulfilled: (value: AdminQueryResult) => unknown) =>
+          Promise.resolve({ data: null, error: null }).then(onFulfilled),
+      } as QueryChain;
     },
     eq: (column, value) => {
       filters.push({ column, value });

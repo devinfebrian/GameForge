@@ -18,7 +18,9 @@ mock.module("@/lib/supabase/admin", () => ({
 // process — every other test that needs it would then fail too.
 const { encryptSecret, parseEncryptionKey } = await import("@/lib/crypto/secrets");
 const { GenerationError } = await import("@/lib/llm/errors");
-const { loadGatewayCredential, readGatewayKeyState } = await import("@/lib/llm/config");
+const { loadAppSettings, loadGatewayCredential, readGatewayKeyState } = await import(
+  "@/lib/llm/config"
+);
 
 const KEY_BASE64 = Buffer.alloc(32, 5).toString("base64");
 const KEY = parseEncryptionKey(KEY_BASE64);
@@ -111,5 +113,55 @@ describe("loadGatewayCredential", () => {
     queueRows([row("coder_agent", "key-one"), row("debug_agent", "key-two")]);
 
     expect(await captureCode(loadGatewayCredential(KEY_BASE64))).toBe("config_missing");
+  });
+});
+
+describe("loadAppSettings", () => {
+  test("returns the stored switches", async () => {
+    adminDouble.queryQueue = [
+      {
+        data: [
+          { key: "asset_mode", value: "llm" },
+          { key: "token_limit_mode", value: "limitless" },
+        ],
+        error: null,
+      },
+    ];
+
+    expect(await loadAppSettings()).toEqual({
+      assetMode: "llm",
+      tokenLimitMode: "limitless",
+    });
+  });
+
+  test("defaults missing keys to the safe values", async () => {
+    adminDouble.queryQueue = [{ data: [], error: null }];
+
+    expect(await loadAppSettings()).toEqual({
+      assetMode: "kenney",
+      tokenLimitMode: "limited",
+    });
+  });
+
+  // A read failure must not disable the spend guard: the safe direction is the
+  // default `limited`, never a silent `limitless`.
+  test("fails safe on a read error rather than disabling the spend guard", async () => {
+    adminDouble.queryQueue = [{ data: null, error: { message: "boom", code: "XX000" } }];
+
+    expect(await loadAppSettings()).toEqual({
+      assetMode: "kenney",
+      tokenLimitMode: "limited",
+    });
+  });
+
+  test("fails safe on an unrecognised value", async () => {
+    adminDouble.queryQueue = [
+      { data: [{ key: "asset_mode", value: "bogus" }], error: null },
+    ];
+
+    expect(await loadAppSettings()).toEqual({
+      assetMode: "kenney",
+      tokenLimitMode: "limited",
+    });
   });
 });
