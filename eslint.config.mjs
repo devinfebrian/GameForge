@@ -15,6 +15,7 @@ const eslintConfig = defineConfig([
     // Third-party browser bundles copied out of node_modules by
     // scripts/copy-vendor.ts. Our own sandbox files stay linted.
     "public/sandbox/vendor/**",
+    "assets-src/**",
   ]),
   {
     // The sandbox runs without a bundler, so it relies on globals provided by

@@ -400,20 +400,20 @@ export function StudioWorkspace({
     setUserPreviewOpen(true);
   }, []);
 
+  const abortRef = useRef<AbortController | null>(null);
+  const busyRef = useRef(false);
+  const bootedRef = useRef<string | null>(null);
+  const turnIdRef = useRef(0);
+  const runningVersionRef = useRef<string | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement | null>(null);
+
   // Safety net: if busy stays true for longer than the server maxDuration (5 min),
   // auto-reset so the user isn't permanently blocked.
   const BUSY_TIMEOUT_MS = 330_000; // 5 min 30 s (server maxDuration=300s + buffer)
   useEffect(() => {
     if (!busy || busySince === null) return;
     const elapsed = Date.now() - busySince;
-    const remaining = BUSY_TIMEOUT_MS - elapsed;
-    if (remaining <= 0) {
-      busyRef.current = false;
-      setBusy(false);
-      setBusySince(null);
-      setFailure("The previous run timed out without a response. You can try submitting again.");
-      return;
-    }
+    const remaining = Math.max(0, BUSY_TIMEOUT_MS - elapsed);
     const id = setTimeout(() => {
       busyRef.current = false;
       setBusy(false);
@@ -435,13 +435,6 @@ export function StudioWorkspace({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [previewExpanded]);
-
-  const abortRef = useRef<AbortController | null>(null);
-  const busyRef = useRef(false);
-  const bootedRef = useRef<string | null>(null);
-  const turnIdRef = useRef(0);
-  const runningVersionRef = useRef<string | null>(null);
-  const chatBottomRef = useRef<HTMLDivElement | null>(null);
 
   const addUnpersistedTurn = useCallback((text: string, note: string) => {
     turnIdRef.current += 1;
