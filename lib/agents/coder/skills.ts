@@ -69,10 +69,65 @@ export const PHASER4_UI_GUIDANCE = `## UI and HUD Elements
   const bar = this.add.graphics().setScrollFactor(0).setDepth(100);
 - Position HUD elements relative to this.scale.width and this.scale.height (480x320 canvas).`;
 
+export const PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE = `## Gameplay Progression & Level Architecture
+
+Every game must be immediately playable, fair, and rewarding from the first run:
+1. Multi-Level / Wave Structure:
+   - Define progression state: this.level = 1; this.maxLevels = 3; this.score = 0; this.lives = 3;
+   - Implement a clean startLevel(lvl) method in MainScene:
+     * Clears previous level entities: this.enemies.clear(true, true); this.collectibles.clear(true, true);
+     * Resets player position to a safe spawn coordinate (e.g. (60, 160) or (240, 260)).
+     * Spawns level-scaled challenge: Level 1 introduces core mechanics; Level 2 increases hazard speed and layout density; Level 3 is the climax challenge.
+     * Shows a brief floating level announcement banner (e.g. "LEVEL " + lvl) that fades out smoothly after 1.2s.
+   - When level objective is fulfilled (e.g. all targets collected or defeated), trigger sound, display "LEVEL COMPLETE!", and advance:
+     if (this.level < this.maxLevels) { this.level++; this.startLevel(this.level); } else { this.triggerVictory(); }
+2. Safe Spawning & Fair Encounters:
+   - NEVER spawn enemies, hazards, or traps within 100px of the player start position. Instant death on spawn ruins the game.
+   - For all moving entities, ensure they stay within bounds or bounce/patrol predictably.
+3. Audio & Visual Juice:
+   - On Damage/Hit: Flash player red (this.player.setTint(0xff3333) with clearTint() after 120ms), trigger camera shake (this.cameras.main.shake(100, 0.01)), and play sound.
+   - On Collect/Kill: Trigger particle burst (burst.explode(10, x, y)), floating score text (+100), and play sound.
+4. Win, Game Over & Restart:
+   - On Game Over: Freeze input, show dark overlay with "GAME OVER", final score, and "Press ENTER to Try Again".
+   - On Victory: Show "VICTORY! ALL LEVELS CLEARED", final score, and "Press ENTER to Play Again".
+   - Restart handler: this.input.keyboard.once("keydown-ENTER", () => this.scene.restart());`;
+
+export const PHASER4_CONTROLS_GUIDANCE = `## Responsive Controls & HUD Guidance
+
+1. Dual-Input Movement (Arrows + WASD):
+   Always bind BOTH Arrow keys and WASD simultaneously in create():
+   this.cursors = this.input.keyboard.createCursorKeys();
+   this.wasd = this.input.keyboard.addKeys({
+     up: Phaser.Input.Keyboard.KeyCodes.W,
+     down: Phaser.Input.Keyboard.KeyCodes.S,
+     left: Phaser.Input.Keyboard.KeyCodes.A,
+     right: Phaser.Input.Keyboard.KeyCodes.D
+   });
+   In update(), check both:
+   const left = this.cursors.left.isDown || this.wasd.left.isDown;
+   const right = this.cursors.right.isDown || this.wasd.right.isDown;
+   const up = this.cursors.up.isDown || this.wasd.up.isDown;
+   const down = this.cursors.down.isDown || this.wasd.down.isDown;
+2. Diagonal Normalization:
+   In 8-directional top-down games, always normalize velocity vectors so diagonal movement is not 40% faster:
+   const vx = (right ? 1 : 0) - (left ? 1 : 0);
+   const vy = (down ? 1 : 0) - (up ? 1 : 0);
+   if (vx !== 0 || vy !== 0) {
+     const len = Math.hypot(vx, vy);
+     this.player.setVelocity((vx / len) * speed, (vy / len) * speed);
+   } else {
+     this.player.setVelocity(0, 0);
+   }
+3. On-Screen Controls Legend & HUD:
+   - Always display a fixed, clean controls hint in the corner or bottom (e.g. "WASD / Arrows: Move | Space: Action") with .setScrollFactor(0).setDepth(100).
+   - Display a top HUD: "SCORE: " + this.score, "LEVEL: " + this.level + "/" + this.maxLevels, and "LIVES: " + this.lives.`;
+
 export const PHASER4_SKILLS_PROMPT = [
   PHASER4_API_RULES,
   PHASER4_FX_GUIDANCE,
   PHASER4_PHYSICS_GUIDANCE,
   PHASER4_PARTICLES_GUIDANCE,
   PHASER4_UI_GUIDANCE,
+  PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE,
+  PHASER4_CONTROLS_GUIDANCE,
 ].join("\n\n");

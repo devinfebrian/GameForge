@@ -136,6 +136,12 @@ describe("buildCoderSystemPrompt", () => {
     expect(prompt).toContain("enableFilters()");
     expect(prompt).toContain("maxParticles");
   });
+
+  test("mandates multi-level progression and responsive dual controls", () => {
+    expect(prompt).toContain("startLevel");
+    expect(prompt).toContain("createCursorKeys");
+    expect(prompt).toContain("WASD / Arrows: Move");
+  });
 });
 
 describe("buildCoderUserPrompt with a patch", () => {

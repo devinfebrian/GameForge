@@ -5,6 +5,8 @@ import {
   PHASER4_PHYSICS_GUIDANCE,
   PHASER4_PARTICLES_GUIDANCE,
   PHASER4_UI_GUIDANCE,
+  PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE,
+  PHASER4_CONTROLS_GUIDANCE,
   PHASER4_SKILLS_PROMPT,
 } from "./skills";
 
@@ -39,9 +41,24 @@ describe("Phaser 4 Skills compilation", () => {
     expect(PHASER4_UI_GUIDANCE).toContain("setDepth(100)");
   });
 
+  test("provides gameplay progression and multi-level structure guidance", () => {
+    expect(PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE).toContain("startLevel");
+    expect(PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE).toContain("maxLevels");
+    expect(PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE).toContain("100px");
+    expect(PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE).toContain("this.cameras.main.shake");
+  });
+
+  test("provides responsive dual controls and HUD guidance", () => {
+    expect(PHASER4_CONTROLS_GUIDANCE).toContain("createCursorKeys");
+    expect(PHASER4_CONTROLS_GUIDANCE).toContain("addKeys");
+    expect(PHASER4_CONTROLS_GUIDANCE).toContain("Math.hypot");
+  });
+
   test("aggregates all guidance into PHASER4_SKILLS_PROMPT", () => {
     expect(PHASER4_SKILLS_PROMPT).toContain("Phaser 4 (v4.2.1)");
     expect(PHASER4_SKILLS_PROMPT).toContain("enableFilters()");
     expect(PHASER4_SKILLS_PROMPT).toContain("maxParticles");
+    expect(PHASER4_SKILLS_PROMPT).toContain("startLevel");
+    expect(PHASER4_SKILLS_PROMPT).toContain("createCursorKeys");
   });
 });

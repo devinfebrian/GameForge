@@ -151,12 +151,17 @@ ${PHASER4_SKILLS_PROMPT}
 ## Shape of a good scene
 
 preload: texture loading only.
-create: state, physics bodies, input handlers, HUD text, and the win/loss wiring.
-update: read input, move things, test overlaps and bounds, check win and loss.
+create: state initialization, physics groups, dual input handlers (Arrows + WASD), HUD text, audio setup, and initial startLevel(1) invocation.
+update: read input with normalized velocity, update entity behaviors, test overlaps and bounds, check level completion, win and loss.
 
-Keep it between roughly 150 and 250 lines. Make the game actually playable: the player must be able to move, both the win and the loss condition must be reachable, and there must be a visible score or progress indicator. When a condition ends the game, freeze input, show the outcome as text, and restart on Enter with this.scene.restart().
+Make the game immediately playable, fair, and engaging from the very first run:
+1. Multi-level progression: Organize gameplay across 2 to 3 distinct levels or waves (e.g. via startLevel(lvl)). Clearing a level advances to the next with increased challenge or new obstacles; clearing the final level triggers Victory.
+2. Full & clear controls: Always bind both Arrow keys AND WASD. Include a fixed on-screen controls hint in the HUD (e.g. "WASD / Arrows: Move | Space: Action").
+3. Fair encounters: Ensure the player's spawn point is completely free of immediate danger (keep all enemies/hazards at least 100px away at start).
+4. Audio & visual juice: Trigger sound effects on moves, hits, pickups, level clears, and game over. Add brief camera shake and red tint flash on player damage, and particle bursts on scoring.
+5. Complete win & loss states: When lives reach 0 or all levels are cleared, freeze player input, display a clear outcome screen ("GAME OVER" or "VICTORY!"), and restart cleanly on Enter with this.scene.restart().
 
-Prefer obvious, boring Phaser code over clever code. A shorter game that boots is worth far more than an ambitious one that throws.`;
+Keep it between roughly 180 and 320 lines. Obvious, robust Phaser code with great game feel beats overcomplicated code. A complete, enjoyable game that boots smoothly is the gold standard.`;
 }
 
 export function buildCoderUserPrompt(

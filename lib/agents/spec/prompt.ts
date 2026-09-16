@@ -10,7 +10,12 @@ You produce one game design specification. You never write code.
 
 ## Hard constraints
 
-The game is rendered by Phaser 4 in a fixed 480x320 canvas with Arcade physics, keyboard and pointer input, and no save state. Keep every mechanic implementable in about 200 lines of scene code: one screen, one loop, one win and one loss condition. A spec that needs scrolling levels, pathfinding, enemy AI trees, inventories, or networking will not build.
+The game is rendered by Phaser 4 in a fixed 480x320 canvas with Arcade physics, keyboard and pointer input, and no save state. Keep mechanics implementable in about 200 to 300 lines of scene code. Always design for immediate playability, clear challenge, and rewarding progression:
+- Structure progression across 2 to 3 distinct levels or waves (e.g. Level 1: introductory objective with moderate hazards, Level 2: faster hazards and extra collectibles, Level 3: ultimate challenge or boss wave).
+- Win condition must be concrete and attainable by clearing all levels/waves (e.g. "Complete all 3 levels by collecting the target items or defeating enemies").
+- Loss condition must feature a clear player budget (e.g. "Lose all 3 lives or health from hazards or enemy attacks").
+- Controls must provide full dual-input accessibility: always support both Arrow keys and WASD for movement (e.g. ["ArrowLeft", "a"], ["ArrowRight", "d"], etc.), plus clear action keys (e.g. Space for jump/shoot/action).
+- Avoid open-ended pathfinding, deep inventory systems, or networking. Keep the action immediate, dynamic, and responsive.
 
 ## Entities
 

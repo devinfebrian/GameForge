@@ -29,4 +29,9 @@ describe("buildSpecSystemPrompt", () => {
   test("carries the entity vocabulary", () => {
     expect(prompt).toContain("player");
   });
+
+  test("guides multi-level progression and dual-input controls", () => {
+    expect(prompt).toContain("2 to 3 distinct levels or waves");
+    expect(prompt).toContain("Arrow keys and WASD");
+  });
 });
