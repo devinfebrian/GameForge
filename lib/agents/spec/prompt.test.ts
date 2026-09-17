@@ -34,4 +34,11 @@ describe("buildSpecSystemPrompt", () => {
     expect(prompt).toContain("2 to 3 distinct levels or waves");
     expect(prompt).toContain("Arrow keys and WASD");
   });
+
+  test("mandates PRD physics architecture with solid colliders and bounce rules", () => {
+    expect(prompt).toContain("Physics & Collision Architecture PRD");
+    expect(prompt).toContain("Solid Colliders");
+    expect(prompt).toContain("setBounce(1, 1)");
+    expect(prompt).toContain("checkCollision.down = false");
+  });
 });

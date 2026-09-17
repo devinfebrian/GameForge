@@ -41,16 +41,44 @@ Phaser 4 replaces Phaser 3 FX pipelines with the unified Filter system:
 - Enable filters ONCE in create(). Never add filters repeatedly inside update() (causes severe memory leaks).
 - For simple damage flashes or color pulses, prefer sprite.setTint(0xff0000) or sprite.clearTint() over adding filters.`;
 
-export const PHASER4_PHYSICS_GUIDANCE = `## Arcade Physics (Phaser 4)
+export const PHASER4_PHYSICS_GUIDANCE = `## Arcade Physics & Collision Engine (Phaser 4)
 
 - Always create physics sprites using this.physics.add.sprite(x, y, key) or this.physics.add.group().
 - Cast body when configuring: const body = sprite.body as Phaser.Physics.Arcade.Body.
 - Hitbox tuning: body.setSize(w, h).setOffset(ox, oy) — keep hitboxes snug.
 - Movement: setVelocity(vx, vy), setAcceleration(ax, ay), setDrag(dx, dy), setMaxVelocity(mx, my).
 - World bounds: sprite.setCollideWorldBounds(true).
-- Collisions:
-  * this.physics.add.collider(a, b, callback, processCallback, this) for physical obstacles.
-  * this.physics.add.overlap(a, b, callback, undefined, this) for triggers, coins, projectiles, damage.`;
+
+### 1. The Collider vs Overlap Golden Rule
+- ALWAYS use this.physics.add.collider(a, b, callback, processCallback, this) for physical obstacles, bouncing balls, solid walls, and blocking bodies.
+  * Collider applies physical separation and bounce restitution.
+  * For targets that should not move on impact (bricks, barriers, paddles): MUST set target.body.immovable = true (or target.setImmovable(true)) and target.body.allowGravity = false.
+- ONLY use this.physics.add.overlap(a, b, callback, undefined, this) for non-blocking sensors and triggers (collecting coins, powerup pickups, reaching exit portal).
+- NEVER use overlap for balls hitting bricks or solid objects: overlap does NOT deflect or separate bodies, causing balls to pass right through bricks!
+
+### 2. Ball & Projectile Bounce Physics (Brick-Breaker, Pong, Deflectors)
+- Ball Setup:
+  ball.setCollideWorldBounds(true);
+  ball.setBounce(1, 1);
+- Solid Bricks Collider:
+  this.physics.add.collider(this.balls, this.bricks, this.hitBrick, null, this);
+  Each brick must have: brick.body.immovable = true; brick.body.allowGravity = false;
+- Paddle Deflection Angle:
+  hitPaddle(paddle, ball) {
+    if (ball.stuck) return;
+    const diff = ball.x - paddle.x;
+    const norm = Phaser.Math.Clamp(diff / (paddle.displayWidth / 2), -1, 1);
+    const speed = Math.max(220, Math.hypot(ball.body.velocity.x, ball.body.velocity.y));
+    ball.setVelocity(norm * speed * 0.85, -Math.abs(speed));
+    soundFx.play("hit");
+  }
+  Paddle must have: paddle.body.immovable = true; paddle.body.allowGravity = false;
+- Docked Ball Launch:
+  While ball is resting on paddle (ball.stuck = true), position it at paddle.x, paddle.y - 20. Prevent paddle collision separation while docked using processCallback: (p, b) => !b.stuck.
+- World Bottom Edge (Life Loss):
+  In games where dropping below paddle loses a life:
+  this.physics.world.checkCollision.down = false;
+  In update(), check if ball.y > 330 to destroy ball and call this.loseLife(). (If checkCollision.down is not false, the ball bounces off the floor and life loss never occurs!).`;
 
 export const PHASER4_PARTICLES_GUIDANCE = `## Particles (Phaser 4)
 

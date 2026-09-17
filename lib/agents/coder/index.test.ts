@@ -142,6 +142,13 @@ describe("buildCoderSystemPrompt", () => {
     expect(prompt).toContain("createCursorKeys");
     expect(prompt).toContain("WASD / Arrows: Move");
   });
+
+  test("mandates PRD physics rules and solid colliders", () => {
+    expect(prompt).toContain("Physics & Collision Architecture");
+    expect(prompt).toContain("this.physics.add.collider");
+    expect(prompt).toContain("Never use overlap for balls hitting bricks");
+    expect(prompt).toContain("immovable = true");
+  });
 });
 
 describe("buildCoderUserPrompt with a patch", () => {
@@ -176,10 +183,20 @@ describe("buildCoderUserPrompt with a patch", () => {
       "Return the complete updated file",
     );
   });
+
+  test("enforces context preservation, anti-hallucination, and compact output", () => {
+    expect(patchPrompt).toContain("Ground Truth & Context Preservation");
+    expect(patchPrompt).toContain("Anti-Hallucination & Assets");
+    expect(patchPrompt).toContain("Compact & Complete Output");
+  });
 });
 
 describe("buildCoderUserPrompt", () => {
   const userPrompt = buildCoderUserPrompt(spec, manifest);
+
+  test("presents mechanics under Game PRD", () => {
+    expect(userPrompt).toContain("Game PRD & Mechanics");
+  });
 
   test("tells the model which entities have art and which do not", () => {
     expect(userPrompt).toContain('player: sprite key "player" is loaded');

@@ -156,12 +156,13 @@ update: read input with normalized velocity, update entity behaviors, test overl
 
 Make the game immediately playable, fair, and engaging from the very first run:
 1. Multi-level progression: Organize gameplay across 2 to 3 distinct levels or waves (e.g. via startLevel(lvl)). Clearing a level advances to the next with increased challenge or new obstacles; clearing the final level triggers Victory.
-2. Full & clear controls: Always bind both Arrow keys AND WASD. Include a fixed on-screen controls hint in the HUD (e.g. "WASD / Arrows: Move | Space: Action").
-3. Fair encounters: Ensure the player's spawn point is completely free of immediate danger (keep all enemies/hazards at least 100px away at start).
-4. Audio & visual juice: Trigger sound effects on moves, hits, pickups, level clears, and game over. Add brief camera shake and red tint flash on player damage, and particle bursts on scoring.
-5. Complete win & loss states: When lives reach 0 or all levels are cleared, freeze player input, display a clear outcome screen ("GAME OVER" or "VICTORY!"), and restart cleanly on Enter with this.scene.restart().
+2. Full & clear controls: Always bind both Arrow keys AND WASD (e.g. createCursorKeys and addKeys). Include a fixed on-screen controls hint in the HUD (e.g. "WASD / Arrows: Move | Space: Action").
+3. Physics & Collision Architecture: Follow the PRD physics rules strictly. Use solid colliders (this.physics.add.collider) for physical obstacles, walls, bouncing balls, and blocking bodies. Never use overlap for balls hitting bricks or solid objects. For bouncing games (brick-breaker, pong): set ball.setBounce(1, 1), make bricks and paddle immovable (immovable = true; allowGravity = false), use paddle deflection math based on impact offset, and disable bottom world bounds (this.physics.world.checkCollision.down = false) so falling balls trigger life loss.
+4. Fair encounters: Ensure the player's spawn point is completely free of immediate danger (keep all enemies/hazards at least 100px away at start).
+5. Audio & visual juice: Trigger sound effects on moves, hits, pickups, level clears, and game over. Add brief camera shake and red tint flash on player damage, and particle bursts on scoring.
+6. Complete win & loss states: When lives reach 0 or all levels are cleared, freeze player input, display a clear outcome screen ("GAME OVER" or "VICTORY!"), and restart cleanly on Enter with this.scene.restart().
 
-Keep it between roughly 180 and 320 lines. Obvious, robust Phaser code with great game feel beats overcomplicated code. A complete, enjoyable game that boots smoothly is the gold standard.`;
+Keep it between roughly 160 and 260 lines. Write concise, clean Phaser code without boilerplate or verbose comments. Avoid giant repetitive arrays or bloated helper methods to ensure output stays well within token ceilings. A complete, enjoyable game that boots smoothly is the gold standard.`;
 }
 
 export function buildCoderUserPrompt(
@@ -173,7 +174,7 @@ export function buildCoderUserPrompt(
 Genre: ${spec.genre}
 Summary: ${spec.summary}
 
-Mechanics:
+Game PRD & Mechanics:
 ${spec.mechanics.map((mechanic) => `- ${mechanic}`).join("\n")}
 
 Controls:
@@ -189,7 +190,7 @@ Sounds:
 ${describeSounds(manifest)}`;
 
   if (patch === undefined) {
-    return `Build this game.
+    return `Build this game according to its Game PRD.
 
 ${design}`;
   }
@@ -203,9 +204,12 @@ ${design}`;
 Requested change: ${patch.instruction}${assetsNote}
 
 Rules for this revision:
-- Change only what the request requires. Everything else must survive intact: entity ids, texture keys, control bindings, collision wiring and existing mechanics.
-- Re-read the current file before answering. Do not rebuild the game from the design summary, which describes the original version and may be out of date.
-- Keep every absolute rule from your system prompt: no imports, no eval, class MainScene extends Phaser.Scene, and the final window.__MAIN_SCENE__ assignment.
+- Ground Truth & Context Preservation: Anchor strictly on the current source. The current code is the ground truth. Preserve all existing features, mechanics, levels (startLevel structure), HUD indicators, physics wiring, and controls unless the request explicitly asks to change or remove them.
+- Anti-Hallucination & Assets: Do not invent texture keys, sounds, or global variables that do not exist. Only use texture keys loaded in preload or generated via makeTexturedSprite. If adding a new visual entity without an asset in preload, define it with makeTexturedSprite in create().
+- Integration of New Context: When adding a new feature or mechanic requested by the user, integrate it seamlessly into the existing architecture (e.g. inside the appropriate level logic, create, or update) rather than rewriting the game or dropping existing mechanics.
+- Physics & Collision Architecture: Adhere strictly to the Collider vs Overlap rules: use solid colliders for bouncing/blocking and overlaps only for non-blocking pickups/triggers.
+- Compact & Complete Output: Return the complete updated file. Keep code concise, elegant, and under 280 lines without bloat, redundant comments, or duplicate helper functions so the output never gets cut off.
+- Keep every absolute rule from your system prompt: no imports, no eval, class MainScene extends Phaser.Scene, and the final window.__MAIN_SCENE__ = MainScene assignment.
 - Load every asset manifest key listed below in preload. The manifest may include updated sprites or sounds for this revision — preload all of them.
 
 The original design, for reference only:

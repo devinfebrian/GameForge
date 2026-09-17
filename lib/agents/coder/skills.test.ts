@@ -29,6 +29,10 @@ describe("Phaser 4 Skills compilation", () => {
     expect(PHASER4_PHYSICS_GUIDANCE).toContain("setCollideWorldBounds(true)");
     expect(PHASER4_PHYSICS_GUIDANCE).toContain("collider");
     expect(PHASER4_PHYSICS_GUIDANCE).toContain("overlap");
+    expect(PHASER4_PHYSICS_GUIDANCE).toContain("NEVER use overlap for balls hitting bricks");
+    expect(PHASER4_PHYSICS_GUIDANCE).toContain("setBounce(1, 1)");
+    expect(PHASER4_PHYSICS_GUIDANCE).toContain("hitPaddle");
+    expect(PHASER4_PHYSICS_GUIDANCE).toContain("checkCollision.down = false");
   });
 
   test("provides particle budget and burst patterns", () => {
