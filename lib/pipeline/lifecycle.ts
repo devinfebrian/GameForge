@@ -55,3 +55,40 @@ export async function checkRunAdmission(
 
   return { ok: true, runId };
 }
+
+export type LifecycleExecutionResult =
+  | { readonly ok: true; readonly outcome: GenerationOutcome }
+  | { readonly ok: false; readonly refusal: RunAdmissionRefusal };
+
+export async function executeRunLifecycle<TContext>(
+  admission: RunAdmissionRequest,
+  deps: LifecycleDependencies,
+  strategy: PipelineStrategy<TContext>,
+  context: TContext,
+  emit: (frame: SseFrame) => void,
+): Promise<LifecycleExecutionResult> {
+  const admissionResult = await checkRunAdmission(admission, deps);
+
+  if (!admissionResult.ok) {
+    return { ok: false, refusal: admissionResult.refusal };
+  }
+
+  const { runId } = admissionResult;
+  let status: RunStatus = "failed";
+  let chargeableTokens = 0;
+
+  try {
+    const outcome = await strategy(emit, context);
+    status = outcome.status;
+    chargeableTokens = outcome.tokensUsed;
+    return { ok: true, outcome };
+  } finally {
+    try {
+      await deps.quotaStore.chargeRun(admission.userId, chargeableTokens);
+    } catch {
+      // Best-effort: billing failure must not prevent releasing the concurrency lease.
+    }
+    await deps.finishRun(runId, status);
+  }
+}
+
