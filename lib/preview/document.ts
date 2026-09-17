@@ -1,9 +1,4 @@
-import { buildPageStyles } from "@/lib/export/boot";
-import { escapeHtml, escapeInlineScript, stripModuleSyntax } from "@/lib/export/html";
-import { buildPhaserConfigExpression } from "@/lib/export/sandbox-config";
-import { PROTOCOL_VERSION } from "@/lib/sandbox/protocol";
-import { PIXEL_ART_HELPER } from "@/lib/sandbox/pixel-art";
-import { buildPreviewAgent } from "./agent";
+import { packageRuntimeDocument } from "@/lib/runtime-document/packager";
 
 export interface PreviewDocumentInput {
   readonly title: string;
@@ -28,52 +23,14 @@ export interface PreviewDocumentInput {
  * machine-generated text that could contain a script terminator.
  */
 export function buildPreviewDocument(input: PreviewDocumentInput): string {
-  const sound = escapeInlineScript(stripModuleSyntax(input.soundSource));
-  const helper = escapeInlineScript(PIXEL_ART_HELPER);
-  const scene = escapeInlineScript(input.sceneSource);
-  const manifest = escapeInlineScript(JSON.stringify(input.assetManifest));
-  const audioManifest = escapeInlineScript(JSON.stringify(input.audioManifest ?? {}));
-  const agent = escapeInlineScript(
-    buildPreviewAgent({
-      appOrigin: input.appOrigin,
-      protocolVersion: PROTOCOL_VERSION,
-    }),
-  );
-
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeHtml(input.title)}</title>
-<style>
-${buildPageStyles()}
-</style>
-</head>
-<body>
-<div id="game"></div>
-<script src="/sandbox/vendor/jsfxr/riffwave.js"></script>
-<script src="/sandbox/vendor/jsfxr/sfxr.js"></script>
-<script src="/sandbox/vendor/phaser.min.js"></script>
-<script>${sound}</script>
-<script>${scene}</script>
-<script>${agent}</script>
-<script>
-${helper}
-window.assetManifest = ${manifest};
-window.audioManifest = ${audioManifest};
-window.addEventListener(
-  "pointerdown",
-  function () {
-    if (window.soundFx) {
-      window.soundFx.unlock();
-    }
-  },
-  { once: true },
-);
-window.__GAME__ = new Phaser.Game(${buildPhaserConfigExpression("window.__MAIN_SCENE__")});
-</script>
-</body>
-</html>
-`;
+  return packageRuntimeDocument({
+    target: "preview",
+    title: input.title,
+    sceneSource: input.sceneSource,
+    assetManifest: input.assetManifest,
+    audioManifest: input.audioManifest,
+    soundSource: input.soundSource,
+    appOrigin: input.appOrigin,
+  });
 }
+

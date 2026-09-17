@@ -1,8 +1,9 @@
 import { slugifyTitle } from "@/lib/games/slug";
-import { buildBootScript, buildPageStyles } from "./boot";
-import { escapeHtml, stripModuleSyntax } from "./html";
+import { stripModuleSyntax } from "./html";
 import type { ExportVendorSources } from "./vendor";
 import type { ZipEntry } from "./zip";
+import { packageRuntimeDocument } from "@/lib/runtime-document/packager";
+
 
 export interface BundleAsset {
   readonly entityId: string;
@@ -97,29 +98,15 @@ function buildBundleHtml(
   assetManifest: Record<string, string>,
   audioManifest: Record<string, string>,
 ): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeHtml(title)}</title>
-<style>
-  ${buildPageStyles()}
-</style>
-</head>
-<body>
-<div id="game"></div>
-<script src="./vendor/jsfxr/riffwave.js"></script>
-<script src="./vendor/jsfxr/sfxr.js"></script>
-<script src="./vendor/phaser.min.js"></script>
-<script src="./vendor/sound.js"></script>
-<script src="./main.js"></script>
-<script>
-${buildBootScript(assetManifest, audioManifest)}</script>
-</body>
-</html>
-`;
+  return packageRuntimeDocument({
+    target: "bundle",
+    title,
+    sceneSource: "",
+    assetManifest,
+    audioManifest,
+  });
 }
+
 
 function buildPackageJson(name: string): string {
   return `${JSON.stringify(

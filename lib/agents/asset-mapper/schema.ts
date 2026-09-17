@@ -72,13 +72,21 @@ export const resolvedManifestSchema = z.object({
   /**
    * Sound assignments: key is event name, value is the resolved sound spec.
    * - `{ preset: "laser" }` → jsfxr synthesized (original)
-   * - { fileId: "sfx_laser_small", url: "..." } → file from game-audio bucket (new)
+   * - `{ fileId: "sfx_laser_small", url: "..." }` → file from game-audio bucket (new)
+   * - `"laser"` (legacy string) → normalized to `{ preset: "laser" }` for backward compatibility
+   *   with versions saved before the dual-mode audio pipeline.
    */
   sounds: z.record(
     z.string(),
     z.union([
       z.object({ preset: z.enum(SOUND_PRESETS) }),
       z.object({ fileId: z.string(), url: z.string() }),
+      z.string().transform((val): { preset: SoundPreset } => {
+        if ((SOUND_PRESETS as readonly string[]).includes(val)) {
+          return { preset: val as SoundPreset };
+        }
+        return { preset: "hit" };
+      }),
     ]),
   ),
 });
