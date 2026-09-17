@@ -29,6 +29,8 @@ const generateRequestSchema = z.object({
   prompt: z.string().trim().min(1).max(PROMPT_MAX_LENGTH),
   /** Omitted or null starts a new game; a uuid appends a version to an existing one. */
   gameId: z.uuid().nullish(),
+  /** Generation quality tier — currently decorative; backend uses admin-configured models. */
+  quality: z.enum(["fast", "balanced", "best"]).default("balanced"),
 });
 
 async function readJsonBody(request: Request): Promise<unknown> {
@@ -118,7 +120,7 @@ export async function POST(request: Request): Promise<Response> {
 
       try {
         const outcome = await runGeneration(
-          { prompt: body.data.prompt, gameId, userId: profile.id },
+          { prompt: body.data.prompt, gameId, userId: profile.id, quality: body.data.quality },
           {
             client,
             models,

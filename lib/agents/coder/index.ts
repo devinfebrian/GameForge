@@ -5,6 +5,7 @@ import type { LlmClient, LlmUsage } from "@/lib/llm/types";
 import {
   buildCoderSystemPrompt,
   buildCoderUserPrompt,
+  buildCoderContinuationPrompt,
   type CoderPatchRequest,
 } from "./prompt";
 
@@ -14,6 +15,8 @@ import {
 // half-written scene.
 const CODER_MAX_TOKENS = 8192;
 const CODER_TEMPERATURE = 0.4;
+/** Max retries when the coder output is truncated. */
+const CODER_MAX_RETRIES = 2;
 
 /**
  * Matches the first fenced block anywhere in the response. It is deliberately
@@ -81,14 +84,52 @@ export interface CoderAgentResult {
 export async function runCoderAgent(
   input: CoderAgentInput,
 ): Promise<CoderAgentResult> {
-  const { text, usage } = await input.client.generateText({
-    model: input.model,
-    system: buildCoderSystemPrompt(),
-    user: buildCoderUserPrompt(input.spec, input.manifest, input.patch),
-    maxTokens: CODER_MAX_TOKENS,
-    temperature: CODER_TEMPERATURE,
-    signal: input.signal,
-  });
+  let text = "";
+  let usage: LlmUsage = { inputTokens: 0, outputTokens: 0 };
+  let attempt = 0;
 
+  while (attempt <= CODER_MAX_RETRIES) {
+    try {
+      const result = await input.client.generateText({
+        model: input.model,
+        system:
+          attempt === 0
+            ? buildCoderSystemPrompt()
+            : buildCoderSystemPrompt() +
+              "\n\n[CONTINUATION] You are continuing a previous response that was cut off. Output ONLY the remaining code starting exactly where it left off — do NOT repeat what was already sent. Begin with the last incomplete line or statement.",
+        user:
+          attempt === 0
+            ? buildCoderUserPrompt(input.spec, input.manifest, input.patch)
+            : buildCoderContinuationPrompt(text),
+        maxTokens: CODER_MAX_TOKENS,
+        temperature: CODER_TEMPERATURE,
+        signal: input.signal,
+      });
+
+      // Append continuation to previous text (first attempt starts empty)
+      text += result.text;
+      usage = {
+        inputTokens: usage.inputTokens + result.usage.inputTokens,
+        outputTokens: usage.outputTokens + result.usage.outputTokens,
+      };
+
+      // If we got here without truncation, we're done
+      return { code: normalizeSceneSource(text), usage };
+    } catch (error) {
+      // Only retry on truncation (provider_error with "cut off" message)
+      if (
+        error instanceof GenerationError &&
+        error.code === "provider_error" &&
+        error.message.includes("cut off") &&
+        attempt < CODER_MAX_RETRIES
+      ) {
+        attempt += 1;
+        continue; // retry with continuation prompt
+      }
+      throw error; // re-throw non-truncation errors immediately
+    }
+  }
+
+  // Should not reach here, but just in case return what we have
   return { code: normalizeSceneSource(text), usage };
 }

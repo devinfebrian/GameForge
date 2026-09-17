@@ -28,13 +28,16 @@ const VALID_SPEC = {
   title: "Space Blaster",
   genre: "space shooter",
   summary: "Blast ships before they ram you.",
+  difficulty: "casual",
   mechanics: ["Move with arrows", "Fire with space"],
+  feel: [{ event: "enemy destroyed", visual: "orange burst", audio: "explosion sound" }],
   controls: [{ action: "move", keys: ["ArrowLeft", "ArrowRight"] }],
   winCondition: "Destroy ten enemies.",
   lossCondition: "Collide with an enemy.",
   entities: [
     { id: "player", kind: "player", behavior: "Slides along the bottom.", assetTags: ["player"] },
     { id: "enemy", kind: "enemy", behavior: "Descends.", assetTags: ["enemy"] },
+    { id: "bullet", kind: "projectile", behavior: "Fires upward.", assetTags: ["projectile"] },
   ],
 };
 
@@ -279,7 +282,7 @@ describe("runGeneration — asset mapper failure degrades", () => {
 
     expect(outcome.status).toBe("completed");
     expect(eventNames).toContain("warning");
-    expect(firstPersist.manifest.sprites).toEqual({ player: null, enemy: null });
+    expect(firstPersist.manifest.sprites).toEqual({ player: null, enemy: null, bullet: null });
   });
 
   test("does not emit stage.completed for a degraded stage", async () => {
@@ -396,7 +399,7 @@ describe("runGeneration — llm asset mode", () => {
       .map((frame) => (frame.data as { stage: string }).stage);
 
     expect(stages).toEqual(["spec", "coder"]);
-    expect(firstPersist.manifest.sprites).toEqual({ player: null, enemy: null });
+    expect(firstPersist.manifest.sprites).toEqual({ player: null, enemy: null, bullet: null });
     // One structured call (spec) instead of two: the mapper's tokens were never spent.
     expect(firstPersist.tokensUsed).toBe(
       STRUCTURED_USAGE.inputTokens +

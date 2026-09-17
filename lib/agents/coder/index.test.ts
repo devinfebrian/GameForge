@@ -12,13 +12,16 @@ const spec: GameSpec = {
   title: "Coin Run",
   genre: "platformer",
   summary: "Collect coins.",
-  mechanics: ["Move left and right"],
+  difficulty: "casual",
+  mechanics: ["Move left and right", "Collect coins to score"],
+  feel: [{ event: "collect a coin", visual: "gold particle burst", audio: "pickup sound" }],
   controls: [{ action: "move", keys: ["ArrowLeft", "ArrowRight"] }],
   winCondition: "Collect five coins.",
   lossCondition: "Touch a bee.",
   entities: [
     { id: "player", kind: "player", behavior: "Runs.", assetTags: ["player"] },
     { id: "bee", kind: "enemy", behavior: "Hovers.", assetTags: ["enemy"] },
+    { id: "coin", kind: "collectible", behavior: "Spins in place.", assetTags: ["collectible"] },
   ],
 };
 

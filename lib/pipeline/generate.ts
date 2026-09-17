@@ -25,6 +25,8 @@ export interface GenerationRequest {
   readonly prompt: string;
   readonly gameId: string | null;
   readonly userId: string;
+  /** Quality tier for model selection. Currently decorative — backend uses admin-configured models. */
+  readonly quality?: "fast" | "balanced" | "best";
 }
 
 export interface GenerationDependencies {

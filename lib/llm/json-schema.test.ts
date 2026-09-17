@@ -20,7 +20,7 @@ describe("toolInputSchema", () => {
   test("keeps every property despite the schema's refinements", () => {
     const properties = schema["properties"] as Record<string, unknown>;
 
-    expect(Object.keys(properties)).toHaveLength(8);
+    expect(Object.keys(properties)).toHaveLength(10);
     expect(properties["entities"]).toBeDefined();
     expect(properties["winCondition"]).toBeDefined();
   });

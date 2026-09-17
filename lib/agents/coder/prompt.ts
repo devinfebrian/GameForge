@@ -172,8 +172,42 @@ export function buildCoderUserPrompt(
   manifest: ResolvedManifest,
   patch?: CoderPatchRequest,
 ): string {
+  const difficultySettings = {
+    casual: {
+      lives: 5,
+      enemySpeedMult: 0.65,
+      enemySpawnDelay: 2000,
+      invincibilityMs: 1500,
+      label: "CASUAL",
+    },
+    medium: {
+      lives: 3,
+      enemySpeedMult: 0.85,
+      enemySpawnDelay: 1500,
+      invincibilityMs: 1200,
+      label: "MEDIUM",
+    },
+    challenging: {
+      lives: 1,
+      enemySpeedMult: 1.0,
+      enemySpawnDelay: 1000,
+      invincibilityMs: 1000,
+      label: "CHALLENGING",
+    },
+  } as const;
+
+  const diff = difficultySettings[spec.difficulty ?? "casual"];
+
+  const feelBlocks = (spec.feel ?? [])
+    .map(
+      (f) =>
+        `- When ${f.event}: visual="${f.visual}", audio="${f.audio}"`,
+    )
+    .join("\n");
+
   const design = `Title: ${spec.title}
 Genre: ${spec.genre}
+Difficulty: ${diff.label} (${diff.lives} lives, enemy speed ×${diff.enemySpeedMult}, spawn delay ${diff.enemySpawnDelay}ms, invincibility ${diff.invincibilityMs}ms after hit)
 Summary: ${spec.summary}
 
 Game PRD & Mechanics:
@@ -184,6 +218,9 @@ ${spec.controls.map((control) => `- ${control.action}: ${control.keys.join(", ")
 
 Win condition: ${spec.winCondition}
 Loss condition: ${spec.lossCondition}
+
+Game Feel & Juice — wire these up in the scene:
+${feelBlocks}
 
 Entities:
 ${describeEntities(spec, manifest)}
@@ -223,4 +260,22 @@ The current source:
 \`\`\`javascript
 ${patch.currentSource}
 \`\`\``;
+}
+
+/**
+ * Builds a continuation prompt when the coder's output was truncated.
+ * Sends back the tail of received text so the model can resume exactly where
+ * it was cut off.
+ */
+export function buildCoderContinuationPrompt(receivedText: string): string {
+  const tail = receivedText.length > 2000 ? "..." + receivedText.slice(-2000) : receivedText;
+  return `Your previous response was cut off at the output limit. Continue from EXACTLY where you stopped — do NOT repeat any code that was already sent.
+
+Here is the end of what you already output (for context only, do not re-output it):
+
+\`\`\`javascript
+${tail}
+\`\`\
+
+Now continue the code from the last incomplete line. Output ONLY the continuation — no explanations, no fences, no repeated code.`;
 }
