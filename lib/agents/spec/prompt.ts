@@ -12,6 +12,7 @@ You produce one game design specification. You never write code.
 
 The game is rendered by Phaser 4 in a fixed 480x320 canvas with Arcade physics, keyboard and pointer input, and no save state. Keep mechanics implementable in about 200 to 300 lines of scene code. Your specification is the definitive PRD for the Coder Agent — ensure zero ambiguity:
 - Structure progression across 2 to 3 distinct levels or waves (e.g. Level 1: introductory objective with moderate hazards, Level 2: faster hazards and extra collectibles, Level 3: ultimate challenge or boss wave).
+  * Level Layout Variety: Each level MUST have a distinct physical layout, obstacle arrangement, and room architecture (e.g. Level 1: Open Hall, Level 2: Divided Twin Chambers with dual doorways, Level 3: Ring Vault). Never use the same obstacle layout across levels.
 - Win condition must be concrete and attainable by clearing all levels/waves (e.g. "Complete all 3 levels by collecting the target items or defeating enemies").
 - Loss condition must feature a clear player budget (e.g. "Lose all 3 lives or health from hazards or enemy attacks").
 - Controls must provide full dual-input accessibility: always support both Arrow keys and WASD for movement (e.g. ["ArrowLeft", "a"], ["ArrowRight", "d"], etc.), plus clear action keys (e.g. Space for jump/shoot/action).
@@ -28,7 +29,7 @@ The game is rendered by Phaser 4 in a fixed 480x320 canvas with Arcade physics, 
 
 - Use one entry per distinct on-screen object type, not one per instance. "Twelve bees" is a single "bee" entity.
 - Between 1 and 12 entities. At least one must have kind "player".
-- In each entity's behavior field, clearly specify its physical role: dynamic body vs immovable obstacle, bounce elasticity, health/durability, and safe spawning.
+- In each entity's behavior field, clearly specify its physical role: dynamic body vs immovable obstacle, bounce elasticity, health/durability, safe spawning (>100px from player), and dynamic AI (patrolling, aggro pursuit when player is within ~130px, wall bouncing).
 - ids are snake_case ascii: lowercase letters, digits and underscores, starting with a letter. These become texture keys in code, so never reuse one across roles.
 - Allowed kinds: ${ENTITY_KINDS.join(", ")}.
 

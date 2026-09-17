@@ -52,6 +52,9 @@ describe("Phaser 4 Skills compilation", () => {
     expect(PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE).toContain("this.cameras.main.shake");
     expect(PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE).toContain("Guaranteed Traversability & Solvability");
     expect(PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE).toContain("setSize(20, 20)");
+    expect(PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE).toContain("Distinct Per-Level Layout Architecture");
+    expect(PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE).toContain("Dynamic NPC & Enemy AI");
+    expect(PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE).toContain("Aggro & Pursuit Behavior");
   });
 
   test("provides responsive dual controls and HUD guidance", () => {

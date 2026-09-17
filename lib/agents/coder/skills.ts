@@ -121,16 +121,35 @@ Every game must be immediately playable, fair, and rewarding from the first run:
    - Restart handler: this.input.keyboard.once("keydown-ENTER", () => this.scene.restart());
 5. Guaranteed Traversability & Solvability (No Undoable Levels):
    - NEVER randomly scatter wall blocks with loops like: for (wallCount) addWall(randX, randY). Random placement clumps blocks together, creating impassable bottlenecks, diagonal chokepoints, or sealing off rooms, making the game impossible to win.
-   - Use structured, open layouts with guaranteed wide corridors:
-     * Pillar Pattern (Recommended): Place 2 to 4 isolated obstacles/pillars (e.g. at (140, 110), (340, 110), (140, 210), (340, 210)) with at least 64px (2 full tiles) walking clearance on all sides.
-     * Chamber Pattern: If creating interior partition walls, guarantee doorways of at least 64px width and never block doorways.
+   - Distinct Per-Level Layout Architecture (Every level must look and play differently):
+     In startLevel(lvl), generate a DIFFERENT room layout for each level using if (lvl === 1) ... else if (lvl === 2) ... else ...:
+     * Level 1 (Open Hall): 2 central pillars (e.g. at (180, 160) and (300, 160)) allowing open navigation while introducing mechanics.
+     * Level 2 (Divided Chambers): A dividing wall (e.g. at x=240) with TWO wide 64px doorways (e.g. at y=80 and y=240) dividing the map into left and right chambers.
+     * Level 3 (Ring Vault): 4 corner pillars (e.g. at (140, 100), (340, 100), (140, 220), (340, 220)) with a central open zone and faster hazards.
+     Never repeat the exact same obstacle coordinates across levels!
    - Player Cornering & Hitbox Tuning:
      In top-down and dungeon games, a full 32x32 square body snags on corners. Always tune the player's hitbox:
      this.player.body.setSize(20, 20).setOffset(6, 6);
      This allows fluid movement around corners.
    - Guaranteed Reachability:
      * Always ensure an unblocked, direct walking path from Player Spawn -> All Keys/Collectibles -> Exit Portal.
-     * Never spawn collectibles, keys, traps, or enemies inside wall bodies or in dead-end trapped pockets.`;
+     * Never spawn collectibles, keys, traps, or enemies inside wall bodies or in dead-end trapped pockets.
+6. Dynamic NPC & Enemy AI (No Dumb 1-Axis Oscillators):
+   - Wall Reaction & Rebound:
+     Set enemy.setCollideWorldBounds(true) and enemy.setBounce(1, 1). If an enemy touches a wall (enemy.body.blocked.left || enemy.body.blocked.right || enemy.body.blocked.up || enemy.body.blocked.down), reverse direction or change patrol axis so enemies NEVER get stuck vibrating against walls.
+   - Aggro & Pursuit Behavior:
+     In update(), check distance to player:
+     const dist = Phaser.Math.Distance.Between(enemy.x, enemy.y, this.player.x, this.player.y);
+     if (dist < 140) {
+       // Aggro: Pursue player directly
+       const angle = Phaser.Math.Angle.Between(enemy.x, enemy.y, this.player.x, this.player.y);
+       enemy.setVelocity(Math.cos(angle) * enemy.speed, Math.sin(angle) * enemy.speed);
+     } else {
+       // Patrol or wander at normal patrol speed
+       if (!enemy.patrolDir) enemy.patrolDir = 1;
+       enemy.setVelocityX(enemy.patrolDir * (enemy.speed * 0.6));
+     }
+   - Visual Facing: Flip enemy sprite based on velocity (enemy.flipX = enemy.body.velocity.x < 0) so the NPC faces where it moves.`;
 
 export const PHASER4_CONTROLS_GUIDANCE = `## Responsive Controls & HUD Guidance
 

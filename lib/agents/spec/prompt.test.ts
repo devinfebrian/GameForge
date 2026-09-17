@@ -46,4 +46,9 @@ describe("buildSpecSystemPrompt", () => {
     expect(prompt).toContain("Guaranteed Traversability & Solvability PRD");
     expect(prompt).toContain("at least 64px (2 tiles) wide");
   });
+
+  test("mandates level layout variety and dynamic enemy AI in PRD", () => {
+    expect(prompt).toContain("Level Layout Variety");
+    expect(prompt).toContain("dynamic AI");
+  });
 });

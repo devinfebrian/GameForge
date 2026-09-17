@@ -154,6 +154,12 @@ describe("buildCoderSystemPrompt", () => {
     expect(prompt).toContain("Guaranteed Traversability");
     expect(prompt).toContain("setSize(20, 20)");
   });
+
+  test("mandates distinct level layouts and dynamic enemy AI", () => {
+    expect(prompt).toContain("distinct physical room/obstacle layout");
+    expect(prompt).toContain("Dynamic NPC & Enemy AI");
+    expect(prompt).toContain("Phaser.Math.Angle.Between");
+  });
 });
 
 describe("buildCoderUserPrompt with a patch", () => {
