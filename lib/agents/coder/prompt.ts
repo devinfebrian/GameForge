@@ -161,6 +161,7 @@ Make the game immediately playable, fair, and engaging from the very first run:
 4. Fair encounters: Ensure the player's spawn point is completely free of immediate danger (keep all enemies/hazards at least 100px away at start).
 5. Audio & visual juice: Trigger sound effects on moves, hits, pickups, level clears, and game over. Add brief camera shake and red tint flash on player damage, and particle bursts on scoring.
 6. Complete win & loss states: When lives reach 0 or all levels are cleared, freeze player input, display a clear outcome screen ("GAME OVER" or "VICTORY!"), and restart cleanly on Enter with this.scene.restart().
+7. Guaranteed Traversability: In top-down, maze, or dungeon games, NEVER randomly scatter wall blocks that can bottleneck or seal off corridors. Use structured pillar layouts or open chambers with wide corridors (at least 64px / 2 tiles wide) ensuring a clear, open path between the player spawn, all collectibles/keys, and the exit. Always tune player hitbox with this.player.body.setSize(20, 20).setOffset(6, 6) so the player moves smoothly around corners without snagging.
 
 Keep it between roughly 160 and 260 lines. Write concise, clean Phaser code without boilerplate or verbose comments. Avoid giant repetitive arrays or bloated helper methods to ensure output stays well within token ceilings. A complete, enjoyable game that boots smoothly is the gold standard.`;
 }

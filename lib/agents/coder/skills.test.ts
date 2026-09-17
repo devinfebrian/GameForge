@@ -50,6 +50,8 @@ describe("Phaser 4 Skills compilation", () => {
     expect(PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE).toContain("maxLevels");
     expect(PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE).toContain("100px");
     expect(PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE).toContain("this.cameras.main.shake");
+    expect(PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE).toContain("Guaranteed Traversability & Solvability");
+    expect(PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE).toContain("setSize(20, 20)");
   });
 
   test("provides responsive dual controls and HUD guidance", () => {

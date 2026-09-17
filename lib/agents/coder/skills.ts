@@ -118,7 +118,19 @@ Every game must be immediately playable, fair, and rewarding from the first run:
 4. Win, Game Over & Restart:
    - On Game Over: Freeze input, show dark overlay with "GAME OVER", final score, and "Press ENTER to Try Again".
    - On Victory: Show "VICTORY! ALL LEVELS CLEARED", final score, and "Press ENTER to Play Again".
-   - Restart handler: this.input.keyboard.once("keydown-ENTER", () => this.scene.restart());`;
+   - Restart handler: this.input.keyboard.once("keydown-ENTER", () => this.scene.restart());
+5. Guaranteed Traversability & Solvability (No Undoable Levels):
+   - NEVER randomly scatter wall blocks with loops like: for (wallCount) addWall(randX, randY). Random placement clumps blocks together, creating impassable bottlenecks, diagonal chokepoints, or sealing off rooms, making the game impossible to win.
+   - Use structured, open layouts with guaranteed wide corridors:
+     * Pillar Pattern (Recommended): Place 2 to 4 isolated obstacles/pillars (e.g. at (140, 110), (340, 110), (140, 210), (340, 210)) with at least 64px (2 full tiles) walking clearance on all sides.
+     * Chamber Pattern: If creating interior partition walls, guarantee doorways of at least 64px width and never block doorways.
+   - Player Cornering & Hitbox Tuning:
+     In top-down and dungeon games, a full 32x32 square body snags on corners. Always tune the player's hitbox:
+     this.player.body.setSize(20, 20).setOffset(6, 6);
+     This allows fluid movement around corners.
+   - Guaranteed Reachability:
+     * Always ensure an unblocked, direct walking path from Player Spawn -> All Keys/Collectibles -> Exit Portal.
+     * Never spawn collectibles, keys, traps, or enemies inside wall bodies or in dead-end trapped pockets.`;
 
 export const PHASER4_CONTROLS_GUIDANCE = `## Responsive Controls & HUD Guidance
 

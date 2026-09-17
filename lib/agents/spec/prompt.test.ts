@@ -41,4 +41,9 @@ describe("buildSpecSystemPrompt", () => {
     expect(prompt).toContain("setBounce(1, 1)");
     expect(prompt).toContain("checkCollision.down = false");
   });
+
+  test("mandates guaranteed traversability and solvability in PRD", () => {
+    expect(prompt).toContain("Guaranteed Traversability & Solvability PRD");
+    expect(prompt).toContain("at least 64px (2 tiles) wide");
+  });
 });

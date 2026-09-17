@@ -149,6 +149,11 @@ describe("buildCoderSystemPrompt", () => {
     expect(prompt).toContain("Never use overlap for balls hitting bricks");
     expect(prompt).toContain("immovable = true");
   });
+
+  test("mandates guaranteed level traversability and corner tuning", () => {
+    expect(prompt).toContain("Guaranteed Traversability");
+    expect(prompt).toContain("setSize(20, 20)");
+  });
 });
 
 describe("buildCoderUserPrompt with a patch", () => {

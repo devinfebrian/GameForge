@@ -18,6 +18,10 @@ The game is rendered by Phaser 4 in a fixed 480x320 canvas with Arcade physics, 
 - Physics & Collision Architecture PRD:
   * Clearly define which interactions are Solid Colliders (using physics collider with separation/bounce, e.g. ball deflecting off bricks, ball bouncing off paddle, solid walls) versus Trigger Overlaps (using physics overlap for non-blocking pickups, powerups, portals).
   * For bouncing/deflecting games (brick-breaker, pong, pinball): explicitly mandate 100% elastic bounce (setBounce(1, 1)), immovable obstacles/bricks/paddles, paddle deflection angles based on impact position, and disabling bottom world bound (checkCollision.down = false) so balls falling below paddle trigger life loss.
+- Guaranteed Traversability & Solvability PRD:
+  * Every level layout must be guaranteed 100% traversable and solvable.
+  * In maze, dungeon, or top-down games, never design closed-off chambers or random obstacle walls that partition the map.
+  * All corridors, doorways, and lanes between obstacles must be at least 64px (2 tiles) wide, guaranteeing an unobstructed path between the player spawn, all required keys/collectibles, and the exit portal.
 - Avoid open-ended pathfinding, deep inventory systems, or networking. Keep the action immediate, dynamic, and responsive.
 
 ## Entities
