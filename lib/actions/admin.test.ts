@@ -62,7 +62,14 @@ const { decryptSecret, encryptSecret, parseEncryptionKey } = await import(
   "@/lib/crypto/secrets"
 );
 const { GenerationError } = await import("@/lib/llm/errors");
-const { updateAgentModel, updateGatewayCredential } = await import("@/lib/actions/admin");
+const {
+  updateAgentModel,
+  updateGatewayCredential,
+  updateAgentFallback,
+  updateProvider,
+  updateAppSetting,
+  applyAutoFallback,
+} = await import("@/lib/actions/admin");
 
 const KEY_BASE64 = Buffer.alloc(32, 11).toString("base64");
 const ENV_KEY = "env-gateway-key";
@@ -106,6 +113,48 @@ function keyForm(fields: { apiKey?: string; clearKey?: boolean }): FormData {
   if (fields.clearKey === true) {
     form.set("clearKey", "on");
   }
+
+  return form;
+}
+
+function fallbackForm(
+  agentType: string,
+  fallbackProvider: string,
+  fallbackModelName: string,
+): FormData {
+  const form = new FormData();
+  form.set("agentType", agentType);
+  form.set("fallbackProvider", fallbackProvider);
+  form.set("fallbackModelName", fallbackModelName);
+
+  return form;
+}
+
+function providerForm(fields: {
+  provider: string;
+  baseUrl: string;
+  apiKey?: string;
+  clearKey?: boolean;
+}): FormData {
+  const form = new FormData();
+  form.set("provider", fields.provider);
+  form.set("baseUrl", fields.baseUrl);
+
+  if (fields.apiKey !== undefined) {
+    form.set("apiKey", fields.apiKey);
+  }
+
+  if (fields.clearKey === true) {
+    form.set("clearKey", "on");
+  }
+
+  return form;
+}
+
+function settingForm(settingKey: string, value: string): FormData {
+  const form = new FormData();
+  form.set("settingKey", settingKey);
+  form.set("value", value);
 
   return form;
 }
@@ -263,6 +312,255 @@ describe("updateGatewayCredential", () => {
     const state = await updateGatewayCredential({}, keyForm({ apiKey: "new-gateway-key" }));
 
     expect(state.message).toContain("INTEGRATION_ENCRYPTION_KEY");
+    expect(adminDouble.writeCalls).toHaveLength(0);
+  });
+});
+
+describe("updateProvider", () => {
+  test("verifies the key, encrypts it, and upserts the provider", async () => {
+    const state = await updateProvider(
+      {},
+      providerForm({
+        provider: "groq",
+        baseUrl: "https://api.groq.com/openai/v1",
+        apiKey: "groq-secret",
+      }),
+    );
+
+    expect(state.ok).toBe(true);
+    expect(session.keyChecks).toEqual([
+      { baseUrl: "https://api.groq.com/openai/v1", credential: "groq-secret" },
+    ]);
+    expect(adminDouble.writeCalls).toHaveLength(1);
+
+    const write = adminDouble.writeCalls[0];
+
+    expect(write?.table).toBe("llm_providers");
+    expect(write?.values.provider).toBe("groq");
+    expect(write?.values.base_url).toBe("https://api.groq.com/openai/v1");
+
+    const stored = write?.values.api_key_encrypted;
+
+    expect(typeof stored).toBe("string");
+    expect(decryptSecret(String(stored), parseEncryptionKey(KEY_BASE64))).toBe("groq-secret");
+  });
+
+  test("clears the stored key without verifying anything", async () => {
+    const state = await updateProvider(
+      {},
+      providerForm({
+        provider: "groq",
+        baseUrl: "https://api.groq.com/openai/v1",
+        clearKey: true,
+      }),
+    );
+
+    expect(state.ok).toBe(true);
+    expect(session.keyChecks).toHaveLength(0);
+    expect(adminDouble.writeCalls).toEqual([
+      {
+        table: "llm_providers",
+        values: {
+          provider: "groq",
+          base_url: "https://api.groq.com/openai/v1",
+          is_active: true,
+          api_key_encrypted: null,
+        },
+        filters: [],
+      },
+    ]);
+  });
+
+  test("refuses a key the gateway rejects, without writing", async () => {
+    session.keyRejected = true;
+
+    const state = await updateProvider(
+      {},
+      providerForm({ provider: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "bad-key" }),
+    );
+
+    expect(state.errors?.apiKey).toHaveLength(1);
+    expect(adminDouble.writeCalls).toHaveLength(0);
+  });
+
+  test("rejects a non-URL base URL without writing", async () => {
+    const state = await updateProvider(
+      {},
+      providerForm({ provider: "groq", baseUrl: "not-a-url", apiKey: "k" }),
+    );
+
+    expect(state.errors?.baseUrl).toBeDefined();
+    expect(adminDouble.writeCalls).toHaveLength(0);
+  });
+});
+
+describe("updateAgentFallback", () => {
+  test("clears the fallback when the provider is none", async () => {
+    const state = await updateAgentFallback({}, fallbackForm("coder_agent", "", ""));
+
+    expect(state.ok).toBe(true);
+    expect(adminDouble.writeCalls).toEqual([
+      {
+        table: "llm_configurations",
+        values: { fallback_provider: null, fallback_model_name: null },
+        filters: [
+          { column: "agent_type", value: "coder_agent" },
+          { column: "is_active", value: true },
+        ],
+      },
+    ]);
+  });
+
+  test("resolves the provider, verifies the model, and saves the fallback", async () => {
+    const ciphertext = encryptSecret("groq-secret", parseEncryptionKey(KEY_BASE64));
+
+    adminDouble.queryQueue = [
+      {
+        data: {
+          base_url: "https://api.groq.com/openai/v1",
+          api_key_encrypted: ciphertext,
+        },
+        error: null,
+      },
+    ];
+
+    const state = await updateAgentFallback(
+      {},
+      fallbackForm("coder_agent", "groq", "llama-3.3-70b-versatile"),
+    );
+
+    expect(state.ok).toBe(true);
+    expect(session.modelChecks).toEqual([
+      {
+        baseUrl: "https://api.groq.com/openai/v1",
+        credential: "groq-secret",
+        model: "llama-3.3-70b-versatile",
+      },
+    ]);
+    expect(adminDouble.writeCalls).toEqual([
+      {
+        table: "llm_configurations",
+        values: {
+          fallback_provider: "groq",
+          fallback_model_name: "llama-3.3-70b-versatile",
+        },
+        filters: [
+          { column: "agent_type", value: "coder_agent" },
+          { column: "is_active", value: true },
+        ],
+      },
+    ]);
+  });
+
+  test("refuses a fallback whose provider is not configured", async () => {
+    const state = await updateAgentFallback(
+      {},
+      fallbackForm("coder_agent", "groq", "llama-3.3-70b-versatile"),
+    );
+
+    expect(state.errors?.fallbackProvider).toBeDefined();
+    expect(adminDouble.writeCalls).toHaveLength(0);
+  });
+
+  test("rejects a blank fallback model when a provider is chosen", async () => {
+    const state = await updateAgentFallback({}, fallbackForm("coder_agent", "groq", "   "));
+
+    expect(state.errors?.fallbackModelName).toBeDefined();
+    expect(adminDouble.writeCalls).toHaveLength(0);
+  });
+});
+
+describe("updateAppSetting", () => {
+  test("upserts a valid setting value", async () => {
+    const state = await updateAppSetting({}, settingForm("asset_mode", "llm"));
+
+    expect(state.ok).toBe(true);
+    expect(adminDouble.writeCalls).toEqual([
+      {
+        table: "app_settings",
+        values: { key: "asset_mode", value: "llm" },
+        filters: [],
+      },
+    ]);
+  });
+
+  test("rejects a value not allowed for the key", async () => {
+    const state = await updateAppSetting({}, settingForm("asset_mode", "bogus"));
+
+    expect(state.errors?.value).toBeDefined();
+    expect(adminDouble.writeCalls).toHaveLength(0);
+  });
+
+  test("rejects an unknown setting key", async () => {
+    const state = await updateAppSetting({}, settingForm("bogus_key", "llm"));
+
+    expect(state.message).toBeDefined();
+    expect(adminDouble.writeCalls).toHaveLength(0);
+  });
+});
+
+describe("applyAutoFallback", () => {
+  function autoFallbackForm(provider: string, modelName?: string): FormData {
+    const form = new FormData();
+    form.set("provider", provider);
+    if (modelName !== undefined) {
+      form.set("modelName", modelName);
+    }
+    return form;
+  }
+
+  test("clears the fallback across all agents when provider is none", async () => {
+    const state = await applyAutoFallback({}, autoFallbackForm("none"));
+
+    expect(state.ok).toBe(true);
+    expect(adminDouble.writeCalls).toEqual([
+      {
+        table: "llm_configurations",
+        values: { fallback_provider: null, fallback_model_name: null },
+        filters: [{ column: "is_active", value: true }],
+      },
+    ]);
+  });
+
+  test("resolves provider, verifies default model, and updates all active rows", async () => {
+    adminDouble.queryQueue = [
+      {
+        data: {
+          base_url: "https://api.groq.com/openai/v1",
+          api_key_encrypted: encryptSecret("groq-secret", parseEncryptionKey(KEY_BASE64)),
+        },
+        error: null,
+      },
+    ];
+
+    const state = await applyAutoFallback({}, autoFallbackForm("groq"));
+
+    expect(state.ok).toBe(true);
+    expect(session.modelChecks).toEqual([
+      {
+        baseUrl: "https://api.groq.com/openai/v1",
+        credential: "groq-secret",
+        model: "llama-3.3-70b-versatile",
+      },
+    ]);
+    expect(adminDouble.writeCalls).toEqual([
+      {
+        table: "llm_configurations",
+        values: {
+          fallback_provider: "groq",
+          fallback_model_name: "llama-3.3-70b-versatile",
+        },
+        filters: [{ column: "is_active", value: true }],
+      },
+    ]);
+  });
+
+  test("refuses auto-fallback when provider is not configured", async () => {
+    adminDouble.queryQueue = [{ data: null, error: null }];
+
+    const state = await applyAutoFallback({}, autoFallbackForm("groq"));
+
+    expect(state.message).toContain("not configured yet");
     expect(adminDouble.writeCalls).toHaveLength(0);
   });
 });

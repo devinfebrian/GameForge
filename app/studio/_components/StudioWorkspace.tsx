@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
+  BotMessageSquare,
   Compass,
   FileCode2,
   Gamepad2,
@@ -11,10 +12,12 @@ import {
   Layers,
   Maximize2,
   Minimize2,
+  Pause,
+  Play,
   Rocket,
   Sparkles,
   Terminal,
-  X,
+  Wrench,
   Zap,
 } from "lucide-react";
 import { PreviewFrame } from "@/app/_components/PreviewFrame";
@@ -36,6 +39,7 @@ import { Citations, type CitationItem } from "@/components/agents/citations";
 import { StreamingResponse } from "@/components/agents/streaming-response";
 import { ToolApproval } from "@/components/agents/tool-approval";
 import type { GenerationStage } from "@/lib/agents/types";
+import { DEBUG_ATTEMPT_LIMIT } from "@/lib/pipeline/debug";
 import type { TranscriptMessage, VersionSummary } from "@/lib/games/repository";
 import type { QuotaStatus } from "@/lib/quota/types";
 import { streamRun } from "@/lib/pipeline/client";
@@ -121,20 +125,23 @@ const GAME_SOURCES: CitationItem[] = [
   },
 ];
 
-const PROMPT_MODELS = [
+const QUALITY_TIERS = [
   {
-    value: "claude-sonnet-5",
-    label: "Claude Sonnet 5 (Default)",
+    value: "fast",
+    label: "⚡ Fast",
+    description: "Quick generation, good quality",
   },
   {
-    value: "claude-3-7-sonnet",
-    label: "Claude 3.7 Sonnet",
+    value: "balanced",
+    label: "🎯 Balanced",
+    description: "Best quality per second",
   },
   {
-    value: "claude-3-5-sonnet",
-    label: "Claude 3.5 Sonnet",
+    value: "best",
+    label: "✨ Best",
+    description: "Maximum quality, may be slower",
   },
-];
+] as const;
 
 const PROMPT_ACTIONS = [
   {
@@ -355,6 +362,7 @@ export function StudioWorkspace({
   const [failure, setFailure] = useState<string | null>(null);
   const [unpersisted, setUnpersisted] = useState<ReadonlyArray<UnpersistedTurn>>([]);
   const [bootError, setBootError] = useState<string | null>(null);
+  const [generationComplete, setGenerationComplete] = useState(false);
 
   const [bootVersionId, setBootVersionId] = useState<string | null>(currentVersionId);
   const [previewVersionId, setPreviewVersionId] = useState<string | null>(currentVersionId);
@@ -368,7 +376,10 @@ export function StudioWorkspace({
   const [loadedAssetManifest, setLoadedAssetManifest] = useState<Record<string, string>>({});
   const [codeViewMode, setCodeViewMode] = useState<"source" | "diff">("source");
   const [pendingRollbackVersionId, setPendingRollbackVersionId] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<string>("claude-sonnet-5");
+  const [qualityTier, setQualityTier] = useState<string>("balanced");
+  const [fixAttemptsRemaining, setFixAttemptsRemaining] = useState(DEBUG_ATTEMPT_LIMIT);
+  const fixAttemptsRef = useRef(fixAttemptsRemaining);
+  useEffect(() => { fixAttemptsRef.current = fixAttemptsRemaining; }, [fixAttemptsRemaining]);
 
   const pendingRollbackVersion = useMemo(
     () => (pendingRollbackVersionId ? versions.find((v) => v.id === pendingRollbackVersionId) ?? null : null),
@@ -384,21 +395,27 @@ export function StudioWorkspace({
   const [userPreviewOpen, setUserPreviewOpen] = useState<boolean | null>(null);
   const [previewExpanded, setPreviewExpanded] = useState(false);
 
-  // Derives preview open state: defaults to true when game is running (ready to play), false otherwise
-  const previewOpen = userPreviewOpen ?? (bridge.status === "running");
+  // Derives preview open state: defaults to true when game is running, generation is complete, or game has a version
+  const previewOpen = userPreviewOpen ?? (
+    bridge.status === "running" ||
+    generationComplete ||
+    (currentVersionId !== null && bridge.status === "idle")
+  );
 
   const togglePreview = useCallback(() => {
     setUserPreviewOpen((current) => !(current ?? (bridge.status === "running")));
   }, [bridge.status]);
 
-  const closePreview = useCallback(() => {
-    setPreviewExpanded(false);
-    setUserPreviewOpen(false);
-  }, []);
-
   const openPreview = useCallback(() => {
     setUserPreviewOpen(true);
   }, []);
+
+  const abortRef = useRef<AbortController | null>(null);
+  const busyRef = useRef(false);
+  const bootedRef = useRef<string | null>(null);
+  const turnIdRef = useRef(0);
+  const runningVersionRef = useRef<string | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement | null>(null);
 
   // Safety net: if busy stays true for longer than the server maxDuration (5 min),
   // auto-reset so the user isn't permanently blocked.
@@ -406,14 +423,7 @@ export function StudioWorkspace({
   useEffect(() => {
     if (!busy || busySince === null) return;
     const elapsed = Date.now() - busySince;
-    const remaining = BUSY_TIMEOUT_MS - elapsed;
-    if (remaining <= 0) {
-      busyRef.current = false;
-      setBusy(false);
-      setBusySince(null);
-      setFailure("The previous run timed out without a response. You can try submitting again.");
-      return;
-    }
+    const remaining = Math.max(0, BUSY_TIMEOUT_MS - elapsed);
     const id = setTimeout(() => {
       busyRef.current = false;
       setBusy(false);
@@ -436,13 +446,6 @@ export function StudioWorkspace({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [previewExpanded]);
 
-  const abortRef = useRef<AbortController | null>(null);
-  const busyRef = useRef(false);
-  const bootedRef = useRef<string | null>(null);
-  const turnIdRef = useRef(0);
-  const runningVersionRef = useRef<string | null>(null);
-  const chatBottomRef = useRef<HTMLDivElement | null>(null);
-
   const addUnpersistedTurn = useCallback((text: string, note: string) => {
     turnIdRef.current += 1;
     const id = turnIdRef.current;
@@ -461,6 +464,11 @@ export function StudioWorkspace({
         current.includes(data.stage) ? current : [...current, data.stage],
       );
       setActiveStage(null);
+
+      // Mark generation complete when the final stage (coder) finishes
+      if (data.stage === "coder") {
+        setGenerationComplete(true);
+      }
       return;
     }
 
@@ -492,6 +500,10 @@ export function StudioWorkspace({
               return payload.sourceCode;
             });
             setLoadedAssetManifest(payload.assetManifest ?? {});
+            // Game booted successfully — restore fix attempts for the next error
+            if (fixAttemptsRef.current < DEBUG_ATTEMPT_LIMIT) {
+              setFixAttemptsRemaining(DEBUG_ATTEMPT_LIMIT);
+            }
 
             if (payload.previewUrl === null) {
               setBootError("Isolated previews are not configured (NEXT_PUBLIC_PREVIEW_ORIGIN).");
@@ -764,21 +776,46 @@ export function StudioWorkspace({
             {busy ? "Agent Building..." : bridge.status === "running" ? "Live" : "Ready"}
           </span>
 
-          {/* Toggle preview button once game is running */}
-          {bridge.status === "running" && (
+          {/* Toggle preview button — shown when game is running, generation is complete, or a version exists */}
+          {(bridge.status === "running" || generationComplete || currentVersionId !== null) && (
             <button
               type="button"
               onClick={togglePreview}
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all ${
                 previewOpen
                   ? "bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25"
-                  : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 animate-pulse shadow-sm"
+                  : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 shadow-sm"
               }`}
               title={previewOpen ? "Hide game preview" : "Show game preview"}
             >
               <Gamepad2 className="size-3.5" />
               <span>{previewOpen ? "Hide Preview" : "Play Game"}</span>
             </button>
+          )}
+
+          {/* ▶ Play button — styled to match Publish/Export buttons */}
+          {(currentVersionId !== null || generationComplete) && bridge.status !== "running" && (
+            <button
+              type="button"
+              onClick={() => {
+                if (bootVersionId) void boot(bootVersionId);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/80 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              title="Launch game"
+            >
+              <Play className="size-3.5 text-muted-foreground" />
+              <span>Play</span>
+            </button>
+          )}
+
+          {/* Running indicator when game is live */}
+          {bridge.status === "running" && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-3 py-1 text-[11px] font-medium text-emerald-400">
+              <span className="flex size-5 items-center justify-center rounded-full bg-emerald-500 text-black">
+                <Play className="size-3 translate-x-0.5 fill-current" />
+              </span>
+              <span>Running</span>
+            </span>
           )}
         </div>
 
@@ -1128,13 +1165,15 @@ export function StudioWorkspace({
                 placeholder={
                   isNewGame
                     ? "A side-scrolling runner where an explorer collects artifacts and dodges hazards..."
-                    : "Make the player jump higher and add particle trails..."
+                    : bridge.lastError !== null
+                      ? "Describe how to fix the error above..."
+                      : "Make the player jump higher and add particle trails..."
                 }
                 maxLength={INSTRUCTION_MAX_LENGTH}
                 readOnly={busy}
-                models={PROMPT_MODELS}
-                model={selectedModel}
-                onModelChange={setSelectedModel}
+                models={QUALITY_TIERS.map((t) => ({ value: t.value, label: t.label, icon: null }))}
+                model={qualityTier}
+                onModelChange={setQualityTier}
                 actions={PROMPT_ACTIONS}
                 onAction={(action) => {
                   const starterPrompt = STARTER_PROMPTS_MAP[action];
@@ -1275,24 +1314,16 @@ export function StudioWorkspace({
                 )}
               </button>
 
-              {/* Close / Collapse Side Panel */}
-              <button
-                type="button"
-                onClick={closePreview}
-                className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-secondary transition-colors"
-                title="Collapse preview panel"
-                aria-label="Collapse preview panel"
-              >
-                <X className="size-4" />
-              </button>
+
             </div>
           </div>
 
           {/* Main View Area (Preview Canvas vs Code vs Assets vs Console vs Versions) */}
           <div className="flex-1 min-h-0 relative flex flex-col">
             {activeTab === "preview" && (
-              <div className="flex-1 min-h-0 flex flex-col">
-                <div className="flex-1 min-h-0 overflow-hidden">
+              <div className="relative flex-1 min-h-0 flex flex-col">
+                <div className="relative flex-1 min-h-0 overflow-hidden">
+                  {/* Always render PreviewFrame so the iframe is always present */}
                   <PreviewFrame
                     frameRef={bridge.frameRef}
                     src={bridge.previewUrl}
@@ -1303,6 +1334,51 @@ export function StudioWorkspace({
                       }
                     }}
                   />
+
+                  {/* Paused overlay — shown on top of the game, not replacing it */}
+                  {bridge.status === "paused" && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[2px] z-10">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="rounded-full bg-white/10 p-4">
+                          <Pause className="size-8 text-white" />
+                        </div>
+                        <span className="text-sm font-medium text-white">Paused</span>
+                        <button
+                          type="button"
+                          onClick={bridge.resume}
+                          className="mt-2 flex items-center gap-2 rounded-lg bg-white/20 px-4 py-2 text-sm font-medium text-white hover:bg-white/30 transition-colors"
+                        >
+                          <Play className="size-4" />
+                          Resume
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Play button shown when generation completed OR game has a version but is idle */}
+                  {(generationComplete || (currentVersionId !== null && bridge.status === "idle")) && bridge.status !== "running" && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0f172a] p-8">
+                      <h2 className="mb-1 text-center text-3xl font-bold text-white drop-shadow-lg">
+                        {title ?? "Game Ready!"}
+                      </h2>
+                      <p className="mb-10 text-center text-sm text-slate-400">
+                        Generation complete — your game is ready to play.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (bootVersionId) void boot(bootVersionId);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/80 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      >
+                        <Play className="size-3.5 text-muted-foreground" />
+                        Start Game
+                      </button>
+                      <p className="mt-10 text-center text-xs text-slate-500">
+                        SPACE / ↑ / Jump &nbsp;·&nbsp; A / ← / Brake &nbsp;·&nbsp; C / O / Boost
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Transport Controls Bar */}
@@ -1473,16 +1549,109 @@ export function StudioWorkspace({
 
           {/* Diagnostic Alerts / Stability Banner */}
           {(bridge.bootTimedOut || bootError !== null || bridge.lastError !== null) && (
-            <div className="border-t border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
-              {bridge.bootTimedOut && (
-                <p>The game did not start within ten seconds.</p>
-              )}
-              {bootError !== null && <p>{bootError}</p>}
-              {bridge.lastError !== null && (
-                <p>
-                  {bridge.lastError.phase}: {bridge.lastError.message}
-                </p>
-              )}
+            <div className="border-t border-destructive/30 bg-destructive/10 p-3 text-xs">
+              <div className="flex flex-col gap-2">
+                {bridge.bootTimedOut && (
+                  <p className="text-destructive">The game did not start within ten seconds.</p>
+                )}
+                {bootError !== null && <p className="text-destructive">{bootError}</p>}
+                {bridge.lastError !== null && (
+                  <p className="text-destructive">
+                    <span className="font-semibold uppercase">{bridge.lastError.phase}: </span>
+                    {bridge.lastError.message}
+                  </p>
+                )}
+                {/* Self-healing fix button — only when there is a game to patch */}
+                {(bridge.lastError !== null || bridge.bootTimedOut) && gameId !== null && fixAttemptsRemaining > 0 && !busy && (
+                  <div className="flex items-center gap-2 pt-1 border-t border-destructive/20">
+                    <span className="text-muted-foreground text-[11px]">
+                      {fixAttemptsRemaining}/{DEBUG_ATTEMPT_LIMIT} fix attempts left
+                    </span>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors disabled:opacity-40"
+                      onClick={async () => {
+                        if (fixAttemptsRemaining <= 0 || gameId === null) return;
+
+                        // For a runtime error we have the error report; for a boot
+                        // timeout we send a synthetic error so the debug agent still runs.
+                        const err = bridge.lastError;
+                        const versionId = runningVersionRef.current ?? bootVersionId ?? previewVersionId;
+
+                        if (versionId === null) {
+                          setFailure("No version to repair.");
+                          return;
+                        }
+
+                        setBusy(true);
+                        setBusySince(Date.now());
+                        setFailure(null);
+
+                        try {
+                          const endpoint = err !== null
+                            ? "/api/debug"
+                            : "/api/patch";
+
+                          const body = err !== null
+                            ? JSON.stringify({ gameId, versionId, error: err })
+                            : JSON.stringify({
+                                gameId,
+                                instruction: "The game failed to start within ten seconds. Check the code and fix any issues so the game boots successfully and fires SCENE_READY.",
+                              });
+
+                          const response = await fetch(endpoint, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body,
+                          });
+
+                          if (!response.ok) {
+                            let message = "The repair could not be applied.";
+                            try {
+                              const json = await response.json() as { error?: { message?: string } };
+                              message = json?.error?.message ?? message;
+                            } catch { /* ignore */ }
+                            setFailure(message);
+                            setFixAttemptsRemaining((n) => n - 1);
+                            return;
+                          }
+
+                          // Debug endpoint returns the new version id
+                          const data = await response.json() as { versionId?: string };
+                          const newVersionId = data?.versionId;
+
+                          if (newVersionId) {
+                            setFixAttemptsRemaining((n) => n - 1);
+                            setBootVersionId(newVersionId);
+                            setPreviewVersionId(newVersionId);
+                            setEvaluateVersionId(newVersionId);
+                            router.refresh();
+                          } else {
+                            setFailure("Repair succeeded but no new version was returned.");
+                            setFixAttemptsRemaining((n) => n - 1);
+                          }
+                        } catch (err) {
+                          const detail = err instanceof Error ? err.message : String(err);
+                          setFailure("Repair failed: " + (detail.length > 120 ? detail.substring(0, 120) + "…" : detail));
+                          setFixAttemptsRemaining((n) => n - 1);
+                        } finally {
+                          setBusy(false);
+                          setBusySince(null);
+                        }
+                      }}
+                    >
+                      <Wrench className="size-3" />
+                      Fix Error
+                    </button>
+                  </div>
+                )}
+                {fixAttemptsRemaining === 0 && (
+                  <p className="text-amber-400 text-[11px]">
+                    <BotMessageSquare className="inline size-3 mr-1" />
+                    Maximum fix attempts reached. Try re-describing the game or restart from a previous version.
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </section>

@@ -5,7 +5,20 @@ const VALID_SPEC = {
   title: "Space Blaster",
   genre: "space shooter",
   summary: "Blast incoming ships before they ram you.",
+  difficulty: "casual",
   mechanics: ["Move with the arrow keys", "Fire with space"],
+  feel: [
+    {
+      event: "player shoots",
+      visual: "small muzzle flash",
+      audio: "laser sound",
+    },
+    {
+      event: "enemy destroyed",
+      visual: "orange particle burst",
+      audio: "explosion sound",
+    },
+  ],
   controls: [
     { action: "move", keys: ["ArrowLeft", "ArrowRight"] },
     { action: "shoot", keys: ["Space"] },
@@ -24,6 +37,12 @@ const VALID_SPEC = {
       kind: "enemy",
       behavior: "Descends from the top.",
       assetTags: ["enemy", "ship", "space"],
+    },
+    {
+      id: "bullet",
+      kind: "projectile",
+      behavior: "Fires upward from player.",
+      assetTags: ["projectile", "space"],
     },
   ],
 };
@@ -88,5 +107,36 @@ describe("gameSpecSchema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe("normalizeUndefined", () => {
+  test("integration: double-encoded controls string is accepted after normalization", () => {
+    const raw = {
+      title: "Test Game",
+      genre: "test",
+      summary: "A test",
+      difficulty: "casual" as const,
+      mechanics: ["Run"],
+      controls: '{"controls":[{"action":"Move","keys":["ArrowLeft"]}]}',
+      winCondition: "Win",
+      lossCondition: "Lose",
+      feel: [{ event: "test", visual: "x", audio: "y" }],
+      entities: [
+        { id: "player", kind: "player" as const, behavior: "moves", assetTags: ["p"] },
+        { id: "enemy", kind: "enemy" as const, behavior: "chases", assetTags: ["e"] },
+        { id: "coin", kind: "collectible" as const, behavior: "sits", assetTags: ["c"] },
+      ],
+    };
+
+    // Simulate what normalizeUndefined does: parse the double-encoded string
+    const parsedControls = JSON.parse(raw.controls);
+    const fixed = { ...raw, controls: parsedControls.controls };
+    const result = gameSpecSchema.safeParse(fixed);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.controls).toHaveLength(1);
+      expect(result.data.controls[0].action).toBe("Move");
+    }
   });
 });

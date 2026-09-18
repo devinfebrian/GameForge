@@ -10,23 +10,59 @@ describe("buildSpecSystemPrompt", () => {
     expect(prompt).toContain("submit_game_spec");
   });
 
-  // The model would return controls as a bare string — and the schema would
-  // reject the whole spec — because the prompt described every other field but
-  // left this one to the tool's JSON schema. The shape has to be spelled out.
   test("spells out the controls shape", () => {
     expect(prompt).toContain('"action"');
     expect(prompt).toContain('"keys"');
-    expect(prompt).toContain("array of 1 to 8 entries");
-    expect(prompt).toContain("array of objects");
+    // New prompt uses "array of 1 to 8 entries" and describes objects
+    expect(prompt).toContain("entries");
+    expect(prompt).toContain("keys");
   });
 
-  // An unbounded mechanics list produced specs the schema rejected for having
-  // more than eight entries.
   test("states the array ceilings", () => {
-    expect(prompt).toContain("mechanics: an array of 1 to 8");
+    expect(prompt).toContain("1 to 8");
+    expect(prompt).toContain("mechanics");
   });
 
   test("carries the entity vocabulary", () => {
     expect(prompt).toContain("player");
+  });
+
+  test("guides multi-level progression and dual-input controls", () => {
+    // New prompt uses "2 to 3 distinct" in the Progression section
+    expect(prompt).toContain("2 to 3 distinct");
+    // Dual-input is now in the Hard constraints section
+    expect(prompt).toContain("Arrow keys AND WASD");
+  });
+
+  test("mandates PRD physics architecture with solid colliders and bounce rules", () => {
+    // New prompt uses a condensed Physics & Collision Architecture PRD section
+    expect(prompt).toContain("Solid Colliders");
+    expect(prompt).toContain("setBounce(1, 1)");
+    // "disable bottom world bound" is the phrasing in the new prompt
+    expect(prompt).toContain("disable bottom world bound");
+  });
+
+  test("mandates guaranteed traversability and solvability", () => {
+    // New prompt merges "Guaranteed Traversability" under Hard constraints
+    expect(prompt).toContain("Guaranteed Traversability");
+    expect(prompt).toContain("at least 64px");
+  });
+
+  test("includes difficulty presets and natural language interpretation", () => {
+    expect(prompt).toContain("difficulty");
+    expect(prompt).toContain("CASUAL");
+    expect(prompt).toContain("non-technical");
+  });
+
+  test("includes game feel / juice guidance", () => {
+    expect(prompt).toContain("feel");
+    expect(prompt).toContain("juice");
+    expect(prompt).toContain("particle burst");
+  });
+
+  test("includes genre-specific patterns", () => {
+    expect(prompt).toContain("Platformer");
+    expect(prompt).toContain("Space Shooter");
+    expect(prompt).toContain("Brick-Breaker");
   });
 });

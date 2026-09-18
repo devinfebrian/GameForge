@@ -3,6 +3,16 @@
 import type { VersionSummary } from "@/lib/games/repository";
 import { History } from "lucide-react";
 
+/** Strips HTML tags and escapes XML special characters in user-supplied text. */
+function escapePrompt(raw: string): string {
+  return raw
+    .replace(/<[^>]*>/g, "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 const buttonClassName =
   "inline-flex items-center gap-1 rounded-md border border-border bg-secondary/80 px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40";
 
@@ -73,9 +83,10 @@ export function VersionTimeline({
             </div>
 
             {version.prompt === null ? null : (
-              <p className="line-clamp-2 text-muted-foreground text-[11px] leading-relaxed">
-                {version.prompt}
-              </p>
+              <p
+                className="line-clamp-2 text-muted-foreground text-[11px] leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: escapePrompt(version.prompt) }}
+              />
             )}
 
             <div className="flex items-center gap-2 pt-1 border-t border-border/40">

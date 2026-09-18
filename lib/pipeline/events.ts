@@ -32,7 +32,7 @@ export interface StageCompletedData extends StageStartedData {
  * The closed set of non-fatal warnings the pipeline may emit. Closed on purpose:
  * Phase 4 branches on these, so adding one is a protocol change.
  */
-export type WarningCode = "mapper_degraded";
+export type WarningCode = "mapper_degraded" | "provider_fallback" | "provider_exhausted";
 
 /** A non-fatal problem: the run continues, the UI should surface it. */
 export interface WarningData extends StageStartedData {

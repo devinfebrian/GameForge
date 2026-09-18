@@ -52,7 +52,7 @@ describe("the fake pipeline's fixtures", () => {
   });
 
   test("labels its rows so they are identifiable in the database", () => {
-    expect(Object.values(FAKE_MODELS)).toEqual([
+    expect(Object.values(FAKE_MODELS).map((v) => v.model)).toEqual([
       "fake-pipeline",
       "fake-pipeline",
       "fake-pipeline",
@@ -122,7 +122,7 @@ describe("the fake pipeline through runGeneration", () => {
     const outcome = await runGeneration(
       { prompt: "anything", gameId: null, userId: "user-1" },
       {
-        client: createFakeGatewayClient(),
+        clients: new Map([["fake", createFakeGatewayClient()]]),
         models: FAKE_MODELS,
         catalog,
         supabaseUrl: "https://example.supabase.co",

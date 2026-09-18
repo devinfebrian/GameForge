@@ -8,8 +8,12 @@
 
 import type { GenerationStage } from "@/lib/agents/types";
 
-/** Model id resolved from `llm_configurations`, per pipeline stage. */
-export type AgentModels = Readonly<Record<GenerationStage, string>>;
+/**
+ * Model id + provider name resolved from `llm_configurations`, per pipeline stage.
+ * The provider field drives which gateway client is used for the request; the model
+ * field is the id passed to that provider's API.
+ */
+export type AgentModels = Readonly<Record<GenerationStage, { readonly model: string; readonly provider: string }>>;
 
 export interface LlmUsage {
   readonly inputTokens: number;
@@ -40,6 +44,8 @@ export interface StructuredRequest<T> {
   readonly maxTokens: number;
   readonly temperature: number;
   readonly signal: AbortSignal;
+  /** Per-request timeout in ms. Overrides the client's default timeout. */
+  readonly timeoutMs?: number;
   /**
    * Narrows the model's JSON payload to the agent's type, throwing
    * `GenerationError` on mismatch. The Zod schema stays the single source
@@ -60,6 +66,8 @@ export interface TextRequest {
   readonly maxTokens: number;
   readonly temperature: number;
   readonly signal: AbortSignal;
+  /** Per-request timeout in ms. Overrides the client's default timeout. */
+  readonly timeoutMs?: number;
 }
 
 export interface TextResult {

@@ -54,9 +54,9 @@ export const FAKE_ASSET_MAPPING = { sprites: [], sounds: [] } as const;
  * model.
  */
 export const FAKE_MODELS: AgentModels = {
-  spec: "fake-pipeline",
-  asset_mapper: "fake-pipeline",
-  coder: "fake-pipeline",
+  spec: { model: "fake-pipeline", provider: "fake" },
+  asset_mapper: { model: "fake-pipeline", provider: "fake" },
+  coder: { model: "fake-pipeline", provider: "fake" },
 };
 
 export function createFakeGatewayClient(): LlmClient {

@@ -1,5 +1,6 @@
 import { escapeInlineScript } from "./html";
 import { PIXEL_ART_HELPER } from "@/lib/sandbox/pixel-art";
+import { GAMEFORGE_ENGINE } from "@/lib/sandbox/engine";
 import { buildPhaserConfigExpression, SANDBOX_GAME_CONFIG } from "./sandbox-config";
 
 /**
@@ -26,6 +27,8 @@ export function buildBootScript(
     : "{}";
 
   return `${escapeInlineScript(PIXEL_ART_HELPER)}
+
+${escapeInlineScript(GAMEFORGE_ENGINE)}
 
 window.assetManifest = ${manifest};
 window.audioManifest = ${audio};

@@ -14,12 +14,16 @@ export interface LlmConfigurationSummary {
   readonly agentType: AgentType;
   readonly provider: string;
   readonly modelName: string;
+  readonly fallbackProvider: string | null;
+  readonly fallbackModelName: string | null;
 }
 
 const llmConfigurationRowSchema = z.object({
   agent_type: z.enum(AGENT_TYPES),
   provider: z.string().min(1),
   model_name: z.string().min(1),
+  fallback_provider: z.string().nullable(),
+  fallback_model_name: z.string().nullable(),
 });
 
 /**
@@ -34,7 +38,7 @@ export async function listLlmConfigurations(): Promise<
 > {
   const { data, error } = await createAdminClient()
     .from("llm_configurations")
-    .select("agent_type, provider, model_name")
+    .select("agent_type, provider, model_name, fallback_provider, fallback_model_name")
     .eq("is_active", true);
 
   if (error !== null) {
@@ -50,6 +54,8 @@ export async function listLlmConfigurations(): Promise<
       agentType: row.agent_type,
       provider: row.provider,
       modelName: row.model_name,
+      fallbackProvider: row.fallback_provider,
+      fallbackModelName: row.fallback_model_name,
     };
   });
 
@@ -58,6 +64,77 @@ export async function listLlmConfigurations(): Promise<
   return [...rows].sort(
     (a, b) => AGENT_TYPES.indexOf(a.agentType) - AGENT_TYPES.indexOf(b.agentType),
   );
+}
+
+export interface LlmProviderSummary {
+  readonly provider: string;
+  readonly baseUrl: string | null;
+  /** Whether an encrypted key is stored (never the ciphertext itself). */
+  readonly keySet: boolean;
+  readonly isActive: boolean;
+}
+
+const providerRowSchema = z.object({
+  provider: z.string().min(1),
+  base_url: z.string().nullable(),
+  api_key_encrypted: z.string().nullable(),
+  is_active: z.boolean(),
+});
+
+/**
+ * The registered gateways, for the admin provider section.
+ *
+ * Reads `api_key_encrypted` only to report whether a key exists, and reduces it
+ * to a boolean before returning — the ciphertext never leaves the server.
+ */
+export async function listLlmProviders(): Promise<ReadonlyArray<LlmProviderSummary>> {
+  const { data, error } = await createAdminClient()
+    .from("llm_providers")
+    .select("provider, base_url, api_key_encrypted, is_active");
+
+  if (error !== null) {
+    throw new GenerationError("config_missing", "Could not read the LLM providers.", {
+      cause: error.message,
+    });
+  }
+
+  return (data ?? []).map((raw) => {
+    const row = providerRowSchema.parse(raw);
+
+    return {
+      provider: row.provider,
+      baseUrl: row.base_url,
+      keySet: row.api_key_encrypted !== null,
+      isActive: row.is_active,
+    };
+  });
+}
+
+const appSettingRowSchema = z.object({
+  key: z.string().min(1),
+  value: z.string().min(1),
+});
+
+/** The global admin switches (`asset_mode`, `token_limit_mode`). */
+export async function listAppSettings(): Promise<Readonly<Record<string, string>>> {
+  const { data, error } = await createAdminClient()
+    .from("app_settings")
+    .select("key, value");
+
+  if (error !== null) {
+    throw new GenerationError("config_missing", "Could not read the app settings.", {
+      cause: error.message,
+    });
+  }
+
+  const settings: Record<string, string> = {};
+
+  for (const raw of data ?? []) {
+    const row = appSettingRowSchema.parse(raw);
+    settings[row.key] = row.value;
+  }
+
+  return settings;
 }
 
 /**

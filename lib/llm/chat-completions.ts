@@ -28,6 +28,11 @@ export interface GatewayOptions {
   readonly timeoutMs?: number;
   readonly retryDelayMs?: number;
   /**
+   * Provider name (e.g. "gemini") to select the right API format. Auto-detected
+   * from baseUrl when omitted.
+   */
+  readonly provider?: string;
+  /**
    * Only consulted by `listModelIds`; the chat calls each carry the signal of the
    * request they belong to.
    */
@@ -125,9 +130,14 @@ export function extractToolArguments(
   return args;
 }
 
-/** Strips or adds exactly one slash so `${base}/v1/...` is always well formed. */
+/** Normalises a gateway base URL and appends the given path.
+ * - Trims trailing slashes from the base.
+ * - Strips a trailing "/v1" segment so that paths like "/v1/chat/completions"
+ *   are never doubled (some providers store the base URL with /v1 included).
+ */
 export function joinGatewayUrl(baseUrl: string, path: string): string {
-  const trimmed = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+  let trimmed = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+  if (trimmed.endsWith("/v1")) trimmed = trimmed.slice(0, -3); // avoid /v1/v1/...
   return `${trimmed}${path}`;
 }
 
@@ -279,10 +289,20 @@ async function requestJson(
       const detail = text.slice(0, 240).replace(/\s+/g, " ").trim() || failureHint;
       lastError = gatewayError(response.status, detail);
 
-      // Only rate limits and server faults are worth a second attempt; a 401 or
-      // a 400 will fail identically every time.
-      if ((response.status === 429 || response.status >= 500) && attempt < MAX_ATTEMPTS) {
-        await sleep(options.retryDelayMs * attempt);
+      // Only rate limits, server faults, and payload-too-large are worth a
+      // second attempt; a 401 or a generic 400 will fail identically every time.
+      // 413/429 on free tiers (e.g. Groq) need aggressive exponential backoff:
+      // the per-minute input token limit needs 10-30s+ to cool down between
+      // large sequential requests (spec → assets → coder).
+      if ((response.status === 429 || response.status === 413 || response.status >= 500) && attempt < MAX_ATTEMPTS) {
+        const isRateLimited = response.status === 429 || response.status === 413;
+        // Exponential backoff: 10s, 20s for rate limits; 0.5s, 1s for server errors (0 if retryDelayMs is 0 for tests)
+        const delayMs = options.retryDelayMs === 0
+          ? 0
+          : isRateLimited
+            ? 10_000 * Math.pow(2, attempt - 1)   // 10s, 20s
+            : options.retryDelayMs * attempt;       // 0.5s, 1s
+        await sleep(delayMs);
         continue;
       }
 
@@ -350,6 +370,122 @@ function chatPayload(request: {
   };
 }
 
+// ─── Gemini API adapter ───────────────────────────────────────────────────────
+// Gemini uses a different request/response format from OpenAI. These helpers
+// convert OpenAI-format payloads to Gemini's "generateContent" format and convert
+// the response back to OpenAI format so the rest of the pipeline is unchanged.
+
+function isGeminiProvider(baseUrl: string): boolean {
+  return baseUrl.includes("generativelanguage.googleapis.com");
+}
+
+/**
+ * Converts an OpenAI-format chat completion payload to Gemini generateContent format.
+ * Supports both text-only and function-calling prompts.
+ */
+function toGeminiPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const messages = payload.messages as Array<{ role: string; content: string }>;
+
+  const contents = messages.map((msg) => {
+    // Gemini role: "user" or "model". "system" is merged into the first user msg.
+    const role = msg.role === "model" ? "model" : "user";
+    return { role, parts: [{ text: msg.content }] };
+  });
+
+  const config: Record<string, unknown> = {
+    temperature: payload.temperature ?? 0.7,
+    maxOutputTokens: (payload.max_tokens as number) ?? 4096,
+  };
+
+  if (payload.stop && typeof payload.stop === "string") {
+    config.stopSequences = [payload.stop];
+  }
+
+  const gemini: Record<string, unknown> = { contents, generationConfig: config };
+
+  // Convert OpenAI tools to Gemini function_declarations
+  const tools = payload.tools as Array<{
+    type: string;
+    function: { name: string; description: string; parameters: unknown };
+  }>;
+  if (tools && tools.length > 0) {
+    gemini.tools = {
+      functionDeclarations: tools.map((t) => ({
+        name: t.function.name,
+        description: t.function.description,
+        parameters: t.function.parameters,
+      })),
+    };
+  }
+
+  return gemini;
+}
+
+interface GeminiPart {
+  text?: string;
+  functionCall?: { name: string; args: Record<string, unknown> };
+}
+
+interface GeminiCandidate {
+  content?: { parts?: GeminiPart[]; role?: string };
+  finishReason?: string;
+}
+
+interface GeminiResponse {
+  candidates?: GeminiCandidate[];
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+  };
+  error?: { message?: string; code?: number };
+}
+
+/** Converts a Gemini generateContent response back to OpenAI chat completion format. */
+function fromGeminiResponse(resp: GeminiResponse): ChatCompletionResponse {
+  if (resp.error) {
+    return { error: { message: resp.error.message, type: "provider_error" } };
+  }
+
+  const candidate = resp.candidates?.[0];
+  const parts = candidate?.content?.parts ?? [];
+
+  let textContent = "";
+  const toolCalls: Array<{ function: { name: string; arguments: string } }> = [];
+
+  for (const part of parts) {
+    if (part.text !== undefined) {
+      textContent += part.text;
+    }
+    if (part.functionCall) {
+      toolCalls.push({
+        function: {
+          name: part.functionCall.name,
+          arguments: JSON.stringify(part.functionCall.args),
+        },
+      });
+    }
+  }
+
+  return {
+    choices: [
+      {
+        message: {
+          content: textContent || null,
+          ...(toolCalls.length > 0 && { tool_calls: toolCalls }),
+        },
+        finish_reason: candidate?.finishReason ?? "stop",
+      },
+    ],
+    usage: {
+      prompt_tokens: resp.usageMetadata?.promptTokenCount ?? 0,
+      completion_tokens: resp.usageMetadata?.candidatesTokenCount ?? 0,
+      input_tokens: resp.usageMetadata?.promptTokenCount ?? 0,
+      output_tokens: resp.usageMetadata?.candidatesTokenCount ?? 0,
+    },
+  };
+}
+
 export function createGatewayClient(options: GatewayOptions): LlmClient {
   const resolved = {
     baseUrl: options.baseUrl,
@@ -358,11 +494,37 @@ export function createGatewayClient(options: GatewayOptions): LlmClient {
     retryDelayMs: options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS,
     fetchImpl: options.fetchImpl ?? fetch,
   };
-  const url = joinGatewayUrl(resolved.baseUrl, "/v1/chat/completions");
+
+  // Detect Gemini provider from base URL
+  const isGemini = isGeminiProvider(options.baseUrl);
+
+  // Gemini base URL for generateContent
+  const geminiBase = "https://generativelanguage.googleapis.com/v1beta";
 
   async function post(payload: Record<string, unknown>, signal: AbortSignal) {
-    const body = (await requestJson(resolved, url, { method: "POST", body: JSON.stringify(payload), signal }, "chat completion")) as ChatCompletionResponse;
-    return { body, usage: parseUsage(body) };
+    let responseBody: ChatCompletionResponse;
+
+    if (isGemini) {
+      // Extract model name from payload and build Gemini generateContent URL
+      const modelName = String(payload.model ?? "gemini-2.5-flash");
+      const url = `${geminiBase}/models/${modelName}:generateContent`;
+      const geminiPayload = toGeminiPayload(payload);
+      const raw = (await requestJson(resolved, url, {
+        method: "POST",
+        body: JSON.stringify(geminiPayload),
+        signal,
+      }, "gemini generateContent")) as GeminiResponse;
+      responseBody = fromGeminiResponse(raw);
+    } else {
+      const url = joinGatewayUrl(resolved.baseUrl, "/v1/chat/completions");
+      responseBody = (await requestJson(resolved, url, {
+        method: "POST",
+        body: JSON.stringify(payload),
+        signal,
+      }, "chat completion")) as ChatCompletionResponse;
+    }
+
+    return { body: responseBody, usage: parseUsage(responseBody) };
   }
 
   return {
@@ -433,12 +595,25 @@ export async function listModelIds(options: GatewayOptions): Promise<ReadonlySet
     fetchImpl: options.fetchImpl ?? fetch,
   };
 
+  // Gemini uses /v1beta/models instead of /v1/models
+  const isGemini = isGeminiProvider(options.baseUrl);
+  const modelsPath = isGemini ? "/v1beta/models" : "/v1/models";
+
   const body = (await requestJson(
     resolved,
-    joinGatewayUrl(resolved.baseUrl, "/v1/models"),
+    joinGatewayUrl(resolved.baseUrl, modelsPath),
     { method: "GET", signal: options.signal ?? new AbortController().signal },
     "model list",
-  )) as { data?: ReadonlyArray<{ id?: string }> };
+  )) as { models?: ReadonlyArray<{ name?: string }>; data?: ReadonlyArray<{ id?: string }> };
 
+  if (isGemini) {
+    // Gemini response: { models: [{ name: "models/gemini-2.5-flash" }] }
+    return new Set(
+      (body.models ?? [])
+        .map((m) => m.name?.replace("models/", "") ?? "")
+        .filter((id) => id.length > 0)
+    );
+  }
+  // OpenAI-style response: { data: [{ id: "gpt-4" }] }
   return new Set((body.data ?? []).map((entry) => entry.id ?? "").filter((id) => id.length > 0));
 }

@@ -16,9 +16,9 @@ const GAME_ID = "5f0a020f-c351-49fb-87c7-204f47711966";
 const VERSION_ID = "11111111-2222-3333-4444-555555555555";
 
 const MODELS = {
-  spec: "claude-sonnet-5",
-  asset_mapper: "claude-sonnet-5",
-  coder: "claude-sonnet-5",
+  spec: { model: "claude-sonnet-5", provider: "anthropic" },
+  asset_mapper: { model: "claude-sonnet-5", provider: "anthropic" },
+  coder: { model: "claude-sonnet-5", provider: "anthropic" },
 };
 
 const STRUCTURED_USAGE: LlmUsage = { inputTokens: 10, outputTokens: 5 };
@@ -41,7 +41,9 @@ const BASE: PatchBase = {
     title: "Space Blaster",
     genre: "space shooter",
     summary: "Blast ships before they ram you.",
-    mechanics: ["Move with arrows"],
+    difficulty: "casual",
+    mechanics: ["Move with arrows", "Shoot enemies with Space"],
+    feel: [{ event: "enemy destroyed", visual: "orange burst", audio: "explosion sound" }],
     controls: [{ action: "move", keys: ["ArrowLeft", "ArrowRight"] }],
     winCondition: "Destroy ten enemies.",
     lossCondition: "Collide with an enemy.",
@@ -51,6 +53,18 @@ const BASE: PatchBase = {
         kind: "player",
         behavior: "Slides along the bottom.",
         assetTags: ["player"],
+      },
+      {
+        id: "enemy",
+        kind: "enemy",
+        behavior: "Descends from the top.",
+        assetTags: ["enemy"],
+      },
+      {
+        id: "bullet",
+        kind: "projectile",
+        behavior: "Fires upward.",
+        assetTags: ["projectile"],
       },
     ],
   }),
@@ -71,6 +85,7 @@ interface HarnessOptions {
   readonly code?: Producer<string>;
   readonly persistThrows?: boolean;
   readonly abortDuringCoder?: boolean;
+  readonly assetMode?: "kenney" | "llm";
 }
 
 interface HarnessResult {
@@ -108,8 +123,9 @@ async function runHarness(options: HarnessOptions = {}): Promise<HarnessResult> 
   };
 
   const deps: PatchDependencies = {
-    client,
+    clients: new Map([["anthropic", client]]),
     models: MODELS,
+    assetMode: options.assetMode,
     catalog,
     supabaseUrl: SUPABASE_URL,
     persist: async (input) => {
@@ -249,5 +265,43 @@ describe("runPatch", () => {
     if (outcome.status === "failed") {
       expect(outcome.versionId).toBeNull();
     }
+  });
+});
+
+describe("runPatch — llm asset mode", () => {
+  test("skips the mapper and keeps the existing manifest unchanged", async () => {
+    const { outcome, frames, persistCalls } = await runHarness({ assetMode: "llm" });
+
+    expect(outcome.status).toBe("completed");
+
+    const stages = frames
+      .filter((frame) => frame.event === "stage.started")
+      .map((frame) => (frame.data as { stage: string }).stage);
+
+    expect(stages).toEqual(["coder"]);
+    expect(persistCalls[0].manifest).toEqual(BASE_MANIFEST);
+  });
+});
+
+describe("runPatch — provider unavailable with no fallback", () => {
+  test("emits a provider_exhausted warning before failing", async () => {
+    const { outcome, frames } = await runHarness({
+      code: () => {
+        throw new GenerationError(
+          "provider_error",
+          "The model gateway returned an unexpected error (HTTP 429).",
+        );
+      },
+    });
+
+    expect(outcome.status).toBe("failed");
+
+    const exhausted = frames.find(
+      (frame) =>
+        frame.event === "warning" &&
+        (frame.data as { code: string }).code === "provider_exhausted",
+    );
+
+    expect(exhausted).toBeDefined();
   });
 });

@@ -12,13 +12,16 @@ const spec: GameSpec = {
   title: "Coin Run",
   genre: "platformer",
   summary: "Collect coins.",
-  mechanics: ["Move left and right"],
+  difficulty: "casual",
+  mechanics: ["Move left and right", "Collect coins to score"],
+  feel: [{ event: "collect a coin", visual: "gold particle burst", audio: "pickup sound" }],
   controls: [{ action: "move", keys: ["ArrowLeft", "ArrowRight"] }],
   winCondition: "Collect five coins.",
   lossCondition: "Touch a bee.",
   entities: [
     { id: "player", kind: "player", behavior: "Runs.", assetTags: ["player"] },
     { id: "bee", kind: "enemy", behavior: "Hovers.", assetTags: ["enemy"] },
+    { id: "coin", kind: "collectible", behavior: "Spins in place.", assetTags: ["collectible"] },
   ],
 };
 
@@ -136,6 +139,37 @@ describe("buildCoderSystemPrompt", () => {
     expect(prompt).toContain("enableFilters()");
     expect(prompt).toContain("maxParticles");
   });
+
+  test("mandates multi-level progression and responsive dual controls", () => {
+    expect(prompt).toContain("startLevel");
+    expect(prompt).toContain("createCursorKeys");
+    expect(prompt).toContain("WASD / Arrows: Move");
+  });
+
+  test("mandates PRD physics rules and solid colliders", () => {
+    expect(prompt).toContain("Physics & Collision Architecture");
+    expect(prompt).toContain("this.physics.add.collider");
+    expect(prompt).toContain("Never use overlap for balls hitting bricks");
+    expect(prompt).toContain("immovable = true");
+  });
+
+  test("mandates guaranteed level traversability and corner tuning", () => {
+    expect(prompt).toContain("Guaranteed Traversability");
+    expect(prompt).toContain("setSize(20, 20)");
+  });
+
+  test("mandates distinct level layouts and dynamic enemy AI", () => {
+    expect(prompt).toContain("distinct physical room/obstacle layout");
+    expect(prompt).toContain("Dynamic NPC & Enemy AI");
+    expect(prompt).toContain("Phaser.Math.Angle.Between");
+  });
+
+  test("documents pre-injected window.GameForge helper library", () => {
+    expect(prompt).toContain("window.GameForge");
+    expect(prompt).toContain("GameForge.createPlatformer");
+    expect(prompt).toContain("GameForge.createHUD");
+    expect(prompt).toContain("GameForge.createStateMachine");
+  });
 });
 
 describe("buildCoderUserPrompt with a patch", () => {
@@ -170,10 +204,20 @@ describe("buildCoderUserPrompt with a patch", () => {
       "Return the complete updated file",
     );
   });
+
+  test("enforces context preservation, anti-hallucination, and compact output", () => {
+    expect(patchPrompt).toContain("Ground Truth & Context Preservation");
+    expect(patchPrompt).toContain("Anti-Hallucination & Assets");
+    expect(patchPrompt).toContain("Compact & Complete Output");
+  });
 });
 
 describe("buildCoderUserPrompt", () => {
   const userPrompt = buildCoderUserPrompt(spec, manifest);
+
+  test("presents mechanics under Game PRD", () => {
+    expect(userPrompt).toContain("Game PRD & Mechanics");
+  });
 
   test("tells the model which entities have art and which do not", () => {
     expect(userPrompt).toContain('player: sprite key "player" is loaded');

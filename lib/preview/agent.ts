@@ -167,14 +167,22 @@ export function buildPreviewAgent(input: {
 
     if (message.type === "PAUSE_GAME") {
       if (game) {
+        // Freeze logic but keep rendering the last frame so the canvas
+        // doesn't go blank.  scene.pause() stops the render loop entirely.
+        game.loop.sleep(Number.MAX_SAFE_INTEGER);
         game.scene.getScenes(true).forEach(function (scene) {
-          scene.scene.pause();
+          if (scene.scene.isActive()) {
+            scene.scene.pause();
+          }
         });
       }
     } else if (message.type === "RESUME_GAME") {
       if (game) {
+        game.loop.wake();
         game.scene.getScenes(true).forEach(function (scene) {
-          scene.scene.resume();
+          if (scene.scene.isPaused()) {
+            scene.scene.resume();
+          }
         });
       }
     } else if (message.type === "RESTART_GAME") {

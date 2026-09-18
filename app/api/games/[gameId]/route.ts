@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getCurrentProfile } from "@/lib/dal";
-import { setGameVisibility } from "@/lib/games/repository";
+import { deleteGame, setGameVisibility } from "@/lib/games/repository";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +18,51 @@ async function readJsonBody(request: Request): Promise<unknown> {
     return await request.json();
   } catch {
     return null;
+  }
+}
+
+/**
+ * Permanently deletes a game and all its versions / runs.
+ */
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ gameId: string }> },
+): Promise<Response> {
+  const profile = await getCurrentProfile();
+
+  if (profile === null) {
+    return Response.json(
+      { error: { code: "unauthorized", message: "Sign in to delete games." } },
+      { status: 401 },
+    );
+  }
+
+  const ids = paramsSchema.safeParse(await params);
+
+  if (!ids.success) {
+    return Response.json(
+      { error: { code: "invalid_params", message: "Malformed game id." } },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const result = await deleteGame({ gameId: ids.data.gameId, userId: profile.id });
+
+    if (result.kind === "not_found") {
+      return Response.json(
+        { error: { code: "game_not_found", message: "No such game for this user." } },
+        { status: 404 },
+      );
+    }
+
+    return Response.json({ deleted: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Delete failed.";
+    return Response.json(
+      { error: { code: "delete_failed", message } },
+      { status: 500 },
+    );
   }
 }
 

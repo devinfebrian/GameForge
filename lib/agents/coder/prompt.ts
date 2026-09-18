@@ -94,6 +94,15 @@ export function buildCoderSystemPrompt(): string {
 
 Your output is loaded by the GameForge runtime as a plain JavaScript file - no module loader and no bundler. Phaser 4 (v4.2.1) is already available as the global "Phaser". The runtime then reads the global "window.__MAIN_SCENE__" and, when it holds a function, starts it as the only scene. Anything that is not that scene is ignored.
 
+## Pre-injected Engine Library: window.GameForge
+
+The runtime provides a pre-injected helper library at "window.GameForge" (or "GameForge"). You are STRONGLY ENCOURAGED to use it to eliminate boilerplate (cutting lines by 60%), prevent physics explosion bugs, and guarantee responsive feel:
+- GameForge.createPlatformer(this, this.player, options): Platformer physics with coyote time (120ms), jump buffer (120ms), variable jump cut (0.4), and .reset(x, y).
+- GameForge.createStateMachine(this, states, initial): Explicit lifecycle states ('running', 'dead', 'won').
+- GameForge.createHUD(this, options): Anchored screen-space HUD (score, lives, wave) and result overlay. Methods: hud.updateScore(val), hud.updateLives(val), hud.updateWave(val), hud.showResult({status: "victory"|"defeat", title: string, message: string}), hud.clearResult().
+- GameForge.juice: Camera shake (juice.shake), screen flash (juice.flash), floating score text (juice.floatingText), particle bursts (juice.burst).
+- GameForge.input.justDown(key): Single-press latch preventing restart loops.
+
 That execution model is the source of every rule below. Treat them as a compiler would.
 
 ## Absolute rules
@@ -151,12 +160,39 @@ ${PHASER4_SKILLS_PROMPT}
 ## Shape of a good scene
 
 preload: texture loading only.
-create: state, physics bodies, input handlers, HUD text, and the win/loss wiring.
-update: read input, move things, test overlaps and bounds, check win and loss.
+create: state initialization, physics groups, dual input handlers (Arrows + WASD), HUD text, audio setup, and initial startLevel(1) invocation.
+update: read input with normalized velocity, update entity behaviors, test overlaps and bounds, check level completion, win and loss.
 
-Keep it between roughly 150 and 250 lines. Make the game actually playable: the player must be able to move, both the win and the loss condition must be reachable, and there must be a visible score or progress indicator. When a condition ends the game, freeze input, show the outcome as text, and restart on Enter with this.scene.restart().
+Make the game immediately playable, fair, and engaging from the very first run:
+1. Multi-level progression: Organize gameplay across 2 to 3 distinct levels or waves (e.g. via startLevel(lvl)). Every level MUST feature a distinct physical room/obstacle layout (e.g. Level 1: Open Hall with center pillars, Level 2: Divided Twin Chambers with dual 64px doorways, Level 3: Ring Vault). Never repeat the exact same obstacle layout across levels.
+2. Full & clear controls: Always bind both Arrow keys AND WASD (e.g. createCursorKeys and addKeys). Include a fixed on-screen controls hint in the HUD (e.g. "WASD / Arrows: Move | Space: Action").
+3. Physics & Collision Architecture: Follow the PRD physics rules strictly. Use solid colliders (this.physics.add.collider) for physical obstacles, walls, bouncing balls, and blocking bodies. Never use overlap for balls hitting bricks or solid objects. For bouncing games (brick-breaker, pong): set ball.setBounce(1, 1), make bricks and paddle immovable (immovable = true; allowGravity = false), use paddle deflection math based on impact offset, and disable bottom world bounds (this.physics.world.checkCollision.down = false) so falling balls trigger life loss.
+4. Fair encounters: Ensure the player's spawn point is completely free of immediate danger (keep all enemies/hazards at least 100px away at start).
+5. Audio & visual juice: Trigger sound effects on moves, hits, pickups, level clears, and game over. Add brief camera shake (GameForge.juice.shake) and red screen flash (GameForge.juice.flash) on player damage, floating score text (GameForge.juice.floatingText) on pickups, and particle bursts (GameForge.juice.burst) on scoring.
+6. Complete win & loss states: When lives reach 0 or all levels are cleared, freeze player input, display a clear outcome screen ("GAME OVER" or "VICTORY!"), and restart cleanly on Enter with this.scene.restart().
+7. Guaranteed Traversability: In top-down, maze, or dungeon games, NEVER randomly scatter wall blocks that can bottleneck or seal off corridors. Use structured layouts with wide corridors (at least 64px / 2 tiles wide) ensuring an open path between the player spawn, all collectibles/keys, and the exit. Always tune player hitbox with this.player.body.setSize(20, 20).setOffset(6, 6) so the player moves smoothly around corners without snagging.
+8. Dynamic NPC & Enemy AI: Enemies must not be dumb 1-axis oscillators. In update(), check distance to player: when within ~130px, pursue the player directly using Phaser.Math.Angle.Between; when far, patrol smoothly. Handle wall collisions (check body.blocked or setBounce(1, 1)) so enemies never vibrate stuck into walls, and set enemy.flipX to face their movement direction.
+9. GameForge Engine Integration: For platformers, runners, and games with score/lives/restart overlays, leverage GameForge.createPlatformer, GameForge.createHUD, and GameForge.createStateMachine to eliminate boilerplate, keep scene code concise, and eliminate physics reset bugs.
+10. Collision Wiring (MANDATORY — games without working collisions are broken):
+    - In create(), AFTER creating all sprites and physics groups, you MUST wire EVERY interaction:
+      a) Player <-> Enemies: this.physics.add.overlap(this.player, this.enemies, this.hitEnemy, null, this);
+      b) Player <-> Collectibles: this.physics.add.overlap(this.player, this.coins, this.collectCoin, null, this);
+      c) Player projectiles <-> Enemies: this.physics.add.overlap(this.bullets, this.enemies, this.bulletHitEnemy, null, this);
+    - Each callback MUST:
+      i) Disable/hide the other sprite (enemy/coin): other.disableBody(true, true); or other.destroy();
+      ii) Update game state (score, lives, etc.)
+      iii) Play a sound effect if available
+      iv) For player damage: apply invincibility cooldown so one hit doesn't drain all lives
+    - If you create enemies, coins, bullets, or ANY interactive entity but forget to wire overlaps/colliders in create(), the game will have no interactions and will be unplayable. This is the #1 generation bug.
+11. Variable Naming Rules (CRITICAL — avoid typos that crash at runtime):
+    - The HUD instance MUST be assigned to "this.hud" (NOT "this.fud", "this.hudElement", or any other name).
+    - The platformer instance MUST be assigned to "this.platformer" (NOT "this.plat", "this.runner", etc.).
+    - The state machine instance MUST be assigned to "this.stateMachine" (NOT "this.sm", "this.fsm", etc.).
+    - State machine transitions use this.stateMachine.transition("stateName") (NOT .change() — that does not exist).
+    - When calling HUD methods, always use this.hud.updateScore(val), this.hud.updateLives(val), this.hud.updateWave(val), this.hud.showResult(res). These are the EXACT method names — do NOT use setScore/setLives/setWave (they do not exist and will crash).
+    - NEVER use "this.fud" — it is a common typo for "this.hud" and will cause a runtime crash.
 
-Prefer obvious, boring Phaser code over clever code. A shorter game that boots is worth far more than an ambitious one that throws.`;
+Keep it between roughly 160 and 260 lines. Write concise, clean Phaser code without boilerplate or verbose comments. Avoid giant repetitive arrays or bloated helper methods to ensure output stays well within token ceilings. A complete, enjoyable game that boots smoothly is the gold standard.`;
 }
 
 export function buildCoderUserPrompt(
@@ -164,11 +200,45 @@ export function buildCoderUserPrompt(
   manifest: ResolvedManifest,
   patch?: CoderPatchRequest,
 ): string {
+  const difficultySettings = {
+    casual: {
+      lives: 5,
+      enemySpeedMult: 0.65,
+      enemySpawnDelay: 2000,
+      invincibilityMs: 1500,
+      label: "CASUAL",
+    },
+    medium: {
+      lives: 3,
+      enemySpeedMult: 0.85,
+      enemySpawnDelay: 1500,
+      invincibilityMs: 1200,
+      label: "MEDIUM",
+    },
+    challenging: {
+      lives: 1,
+      enemySpeedMult: 1.0,
+      enemySpawnDelay: 1000,
+      invincibilityMs: 1000,
+      label: "CHALLENGING",
+    },
+  } as const;
+
+  const diff = difficultySettings[spec.difficulty ?? "casual"];
+
+  const feelBlocks = (spec.feel ?? [])
+    .map(
+      (f) =>
+        `- When ${f.event}: visual="${f.visual}", audio="${f.audio}"`,
+    )
+    .join("\n");
+
   const design = `Title: ${spec.title}
 Genre: ${spec.genre}
+Difficulty: ${diff.label} (${diff.lives} lives, enemy speed ×${diff.enemySpeedMult}, spawn delay ${diff.enemySpawnDelay}ms, invincibility ${diff.invincibilityMs}ms after hit)
 Summary: ${spec.summary}
 
-Mechanics:
+Game PRD & Mechanics:
 ${spec.mechanics.map((mechanic) => `- ${mechanic}`).join("\n")}
 
 Controls:
@@ -177,6 +247,9 @@ ${spec.controls.map((control) => `- ${control.action}: ${control.keys.join(", ")
 Win condition: ${spec.winCondition}
 Loss condition: ${spec.lossCondition}
 
+Game Feel & Juice — wire these up in the scene:
+${feelBlocks}
+
 Entities:
 ${describeEntities(spec, manifest)}
 
@@ -184,7 +257,7 @@ Sounds:
 ${describeSounds(manifest)}`;
 
   if (patch === undefined) {
-    return `Build this game.
+    return `Build this game according to its Game PRD.
 
 ${design}`;
   }
@@ -198,9 +271,12 @@ ${design}`;
 Requested change: ${patch.instruction}${assetsNote}
 
 Rules for this revision:
-- Change only what the request requires. Everything else must survive intact: entity ids, texture keys, control bindings, collision wiring and existing mechanics.
-- Re-read the current file before answering. Do not rebuild the game from the design summary, which describes the original version and may be out of date.
-- Keep every absolute rule from your system prompt: no imports, no eval, class MainScene extends Phaser.Scene, and the final window.__MAIN_SCENE__ assignment.
+- Ground Truth & Context Preservation: Anchor strictly on the current source. The current code is the ground truth. Preserve all existing features, mechanics, levels (startLevel structure), HUD indicators, physics wiring, and controls unless the request explicitly asks to change or remove them.
+- Anti-Hallucination & Assets: Do not invent texture keys, sounds, or global variables that do not exist. Only use texture keys loaded in preload or generated via makeTexturedSprite. If adding a new visual entity without an asset in preload, define it with makeTexturedSprite in create().
+- Integration of New Context: When adding a new feature or mechanic requested by the user, integrate it seamlessly into the existing architecture (e.g. inside the appropriate level logic, create, or update) rather than rewriting the game or dropping existing mechanics.
+- Physics & Collision Architecture: Adhere strictly to the Collider vs Overlap rules: use solid colliders for bouncing/blocking and overlaps only for non-blocking pickups/triggers.
+- Compact & Complete Output: Return the complete updated file. Keep code concise, elegant, and under 280 lines without bloat, redundant comments, or duplicate helper functions so the output never gets cut off.
+- Keep every absolute rule from your system prompt: no imports, no eval, class MainScene extends Phaser.Scene, and the final window.__MAIN_SCENE__ = MainScene assignment.
 - Load every asset manifest key listed below in preload. The manifest may include updated sprites or sounds for this revision — preload all of them.
 
 The original design, for reference only:
@@ -212,4 +288,22 @@ The current source:
 \`\`\`javascript
 ${patch.currentSource}
 \`\`\``;
+}
+
+/**
+ * Builds a continuation prompt when the coder's output was truncated.
+ * Sends back the tail of received text so the model can resume exactly where
+ * it was cut off.
+ */
+export function buildCoderContinuationPrompt(receivedText: string): string {
+  const tail = receivedText.length > 2000 ? "..." + receivedText.slice(-2000) : receivedText;
+  return `Your previous response was cut off at the output limit. Continue from EXACTLY where you stopped — do NOT repeat any code that was already sent.
+
+Here is the end of what you already output (for context only, do not re-output it):
+
+\`\`\`javascript
+${tail}
+\`\`\
+
+Now continue the code from the last incomplete line. Output ONLY the continuation — no explanations, no fences, no repeated code.`;
 }

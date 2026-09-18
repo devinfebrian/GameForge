@@ -1,5 +1,5 @@
 import { listRenderableAssets, type Catalog } from "@/lib/assets/catalog";
-import { listAudioTags, type AudioCatalog } from "@/lib/assets/audio-catalog";
+import { type AudioCatalog } from "@/lib/assets/audio-catalog";
 import type { GameSpec } from "@/lib/agents/spec/schema";
 import { SOUND_PRESETS } from "./schema";
 

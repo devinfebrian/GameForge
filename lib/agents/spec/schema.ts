@@ -20,7 +20,7 @@ const entitySchema = z.object({
   /** Logical id. Becomes the key in the asset manifest and the Phaser texture key. */
   id: slugSchema,
   kind: z.enum(ENTITY_KINDS),
-  /** One or two sentences on how this entity behaves. */
+  /** Two to four sentences on how this entity behaves. More detail = better coder output. */
   behavior: z.string().min(1).max(400),
   /** Terms for the Asset Mapper; drawn from the catalog vocabulary where possible. */
   assetTags: z.array(z.string().min(1).max(40)).min(1).max(6),
@@ -30,6 +30,13 @@ const controlSchema = z.object({
   action: z.string().min(1).max(60),
   /** Key labels as written in the on-screen instructions, e.g. "ArrowLeft". */
   keys: z.array(z.string().min(1).max(24)).min(1).max(6),
+});
+
+/** One feedback event: when it happens, what the player sees, what they hear. */
+const feelEventSchema = z.object({
+  event: z.string().min(1).max(120),
+  visual: z.string().min(1).max(240),
+  audio: z.string().min(1).max(120),
 });
 
 export const gameSpecSchema = z
@@ -43,6 +50,9 @@ export const gameSpecSchema = z
     controls: z.array(controlSchema).min(1).max(8),
     winCondition: z.string().min(1).max(300),
     lossCondition: z.string().min(1).max(300),
+    difficulty: z.enum(["casual", "medium", "challenging"]).default("medium"),
+    /** Feedback events that make the game feel alive. Array of feel events. */
+    feel: z.array(feelEventSchema).default([]),
     entities: z.array(entitySchema).min(1).max(12),
   })
   .refine(

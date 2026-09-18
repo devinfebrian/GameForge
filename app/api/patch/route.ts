@@ -10,6 +10,7 @@ import {
   finishGenerationRun,
   type RunStatus,
 } from "@/lib/games/run-guard";
+import { loadAppSettings } from "@/lib/llm/config";
 import { createPostgresQuotaStore } from "@/lib/quota/postgres-store";
 import { preStreamFailure } from "@/lib/pipeline/http-status";
 import { resolveLlmBootstrap } from "@/lib/pipeline/llm-bootstrap";
@@ -72,14 +73,22 @@ export async function POST(request: Request): Promise<Response> {
 
   const env = getServerEnv();
 
+  // Global admin switches. Read once up front: asset mode reaches the pipeline,
+  // and token-limit mode decides whether the quota gate below runs at all.
+  const settings = await loadAppSettings();
+
   // Shared with /api/generate, so a burst or a spent budget refuses an edit just
-  // as it refuses a generation, before any billable call.
+  // as it refuses a generation, before any billable call. In `limitless` mode the
+  // gate is skipped entirely — the admin's testing hatch.
   const quota = createPostgresQuotaStore({
     dailyTokenBudget: env.dailyTokenBudget,
     runBurstPerMinute: env.runBurstPerMinute,
   });
 
-  const refusal = await quota.checkRunAllowed(profile.id, profile.role === "admin");
+  const refusal =
+    settings.tokenLimitMode === "limitless"
+      ? null
+      : await quota.checkRunAllowed(profile.id, profile.role === "admin");
 
   if (refusal !== null) {
     return preStreamFailure(refusal.code, refusal.message);
@@ -91,7 +100,7 @@ export async function POST(request: Request): Promise<Response> {
     return bootstrap.response;
   }
 
-  const { client, models } = bootstrap;
+  const { clients, models, fallback } = bootstrap;
 
   // One run slot per user, shared with /api/generate, so a patch and a
   // generation cannot overlap and race for games.current_version_id.
@@ -113,8 +122,10 @@ export async function POST(request: Request): Promise<Response> {
         const outcome = await runPatch(
           { gameId, userId: profile.id, instruction, base },
           {
-            client,
+            clients,
             models,
+            fallback,
+            assetMode: settings.assetMode,
             catalog: catalogSchema.parse(catalogJson),
             supabaseUrl: getPublicEnv().supabaseUrl,
             persist: persistGeneration,

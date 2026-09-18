@@ -77,5 +77,7 @@ Rules for this repair:
 - Change only what the error requires. Preserve every entity id, texture key, control binding, collision, score and win/loss rule.
 - If the cause is a missing or misspelled assetManifest key, guard the load rather than removing the entity.
 - Never introduce new asset URLs, imports, network calls, eval or new Function.
-- Keep every absolute rule from your system prompt, including the final window.__MAIN_SCENE__ = MainScene; statement.`;
+- Keep every absolute rule from your system prompt, including the final window.__MAIN_SCENE__ = MainScene; statement.
+- Variable naming (CRITICAL): The HUD instance is always "this.hud" (never "this.fud" — that is a typo). The platformer is "this.platformer". The state machine is "this.stateMachine" (use .transition() NOT .change()). HUD methods are updateScore/updateLives/updateWave (NOT setScore/setLives/setWave — those do not exist). Correct any misspelled variable or method names to these exact names.
+- Collision wiring (CRITICAL): If the game has enemies, coins, collectibles, hazards, or projectiles but they don't interact with the player, the cause is ALWAYS missing this.physics.add.overlap() calls in create(). Every interactive entity MUST have an overlap or collider wired. Add them if missing.`;
 }
