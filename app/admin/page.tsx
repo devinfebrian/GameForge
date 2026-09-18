@@ -152,10 +152,15 @@ export default async function AdminPage() {
                       key={config.agentType}
                       className="rounded border border-black/10 bg-background/50 p-2 dark:border-white/10"
                     >
-                      <p className="font-medium capitalize text-[11px]">
-                        {config.agentType.replace("_", " ")}
-                      </p>
-                      <p className="font-mono text-[10px] text-muted-foreground">
+                      <div className="flex items-center justify-between gap-1">
+                        <p className="font-medium capitalize text-[11px]">
+                          {config.agentType.replace("_", " ")}
+                        </p>
+                        <span className="rounded bg-zinc-500/10 px-1 py-0.2 font-mono text-[9px] uppercase text-muted-foreground">
+                          {config.provider}
+                        </span>
+                      </div>
+                      <p className="font-mono text-[10px] text-muted-foreground truncate" title={config.modelName}>
                         {config.modelName}
                       </p>
                     </div>

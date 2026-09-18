@@ -3,6 +3,7 @@ import { escapeHtml, escapeInlineScript, stripModuleSyntax } from "@/lib/export/
 import { buildPhaserConfigExpression } from "@/lib/export/sandbox-config";
 import { PROTOCOL_VERSION } from "@/lib/sandbox/protocol";
 import { PIXEL_ART_HELPER } from "@/lib/sandbox/pixel-art";
+import { GAMEFORGE_ENGINE } from "@/lib/sandbox/engine";
 import { buildPreviewAgent } from "./agent";
 
 export interface PreviewDocumentInput {
@@ -30,6 +31,7 @@ export interface PreviewDocumentInput {
 export function buildPreviewDocument(input: PreviewDocumentInput): string {
   const sound = escapeInlineScript(stripModuleSyntax(input.soundSource));
   const helper = escapeInlineScript(PIXEL_ART_HELPER);
+  const engine = escapeInlineScript(GAMEFORGE_ENGINE);
   const scene = escapeInlineScript(input.sceneSource);
   const manifest = escapeInlineScript(JSON.stringify(input.assetManifest));
   const audioManifest = escapeInlineScript(JSON.stringify(input.audioManifest ?? {}));
@@ -57,6 +59,7 @@ ${buildPageStyles()}
 <script src="/sandbox/vendor/phaser.min.js"></script>
 <script>${sound}</script>
 <script>${helper}</script>
+<script>${engine}</script>
 <script>
 window.assetManifest = ${manifest};
 window.audioManifest = ${audioManifest};

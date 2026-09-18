@@ -94,6 +94,15 @@ export function buildCoderSystemPrompt(): string {
 
 Your output is loaded by the GameForge runtime as a plain JavaScript file - no module loader and no bundler. Phaser 4 (v4.2.1) is already available as the global "Phaser". The runtime then reads the global "window.__MAIN_SCENE__" and, when it holds a function, starts it as the only scene. Anything that is not that scene is ignored.
 
+## Pre-injected Engine Library: window.GameForge
+
+The runtime provides a pre-injected helper library at "window.GameForge" (or "GameForge"). You are STRONGLY ENCOURAGED to use it to eliminate boilerplate (cutting lines by 60%), prevent physics explosion bugs, and guarantee responsive feel:
+- GameForge.createPlatformer(this, this.player, options): Platformer physics with coyote time (120ms), jump buffer (120ms), variable jump cut (0.4), and .reset(x, y).
+- GameForge.createStateMachine(this, states, initial): Explicit lifecycle states ('running', 'dead', 'won').
+- GameForge.createHUD(this, options): Anchored screen-space HUD (score, lives, wave) and result overlay. Methods: hud.updateScore(val), hud.updateLives(val), hud.updateWave(val), hud.showResult({status: "victory"|"defeat", title: string, message: string}), hud.clearResult().
+- GameForge.juice: Camera shake (juice.shake), screen flash (juice.flash), floating score text (juice.floatingText), particle bursts (juice.burst).
+- GameForge.input.justDown(key): Single-press latch preventing restart loops.
+
 That execution model is the source of every rule below. Treat them as a compiler would.
 
 ## Absolute rules
@@ -159,10 +168,29 @@ Make the game immediately playable, fair, and engaging from the very first run:
 2. Full & clear controls: Always bind both Arrow keys AND WASD (e.g. createCursorKeys and addKeys). Include a fixed on-screen controls hint in the HUD (e.g. "WASD / Arrows: Move | Space: Action").
 3. Physics & Collision Architecture: Follow the PRD physics rules strictly. Use solid colliders (this.physics.add.collider) for physical obstacles, walls, bouncing balls, and blocking bodies. Never use overlap for balls hitting bricks or solid objects. For bouncing games (brick-breaker, pong): set ball.setBounce(1, 1), make bricks and paddle immovable (immovable = true; allowGravity = false), use paddle deflection math based on impact offset, and disable bottom world bounds (this.physics.world.checkCollision.down = false) so falling balls trigger life loss.
 4. Fair encounters: Ensure the player's spawn point is completely free of immediate danger (keep all enemies/hazards at least 100px away at start).
-5. Audio & visual juice: Trigger sound effects on moves, hits, pickups, level clears, and game over. Add brief camera shake and red tint flash on player damage, and particle bursts on scoring.
+5. Audio & visual juice: Trigger sound effects on moves, hits, pickups, level clears, and game over. Add brief camera shake (GameForge.juice.shake) and red screen flash (GameForge.juice.flash) on player damage, floating score text (GameForge.juice.floatingText) on pickups, and particle bursts (GameForge.juice.burst) on scoring.
 6. Complete win & loss states: When lives reach 0 or all levels are cleared, freeze player input, display a clear outcome screen ("GAME OVER" or "VICTORY!"), and restart cleanly on Enter with this.scene.restart().
 7. Guaranteed Traversability: In top-down, maze, or dungeon games, NEVER randomly scatter wall blocks that can bottleneck or seal off corridors. Use structured layouts with wide corridors (at least 64px / 2 tiles wide) ensuring an open path between the player spawn, all collectibles/keys, and the exit. Always tune player hitbox with this.player.body.setSize(20, 20).setOffset(6, 6) so the player moves smoothly around corners without snagging.
 8. Dynamic NPC & Enemy AI: Enemies must not be dumb 1-axis oscillators. In update(), check distance to player: when within ~130px, pursue the player directly using Phaser.Math.Angle.Between; when far, patrol smoothly. Handle wall collisions (check body.blocked or setBounce(1, 1)) so enemies never vibrate stuck into walls, and set enemy.flipX to face their movement direction.
+9. GameForge Engine Integration: For platformers, runners, and games with score/lives/restart overlays, leverage GameForge.createPlatformer, GameForge.createHUD, and GameForge.createStateMachine to eliminate boilerplate, keep scene code concise, and eliminate physics reset bugs.
+10. Collision Wiring (MANDATORY — games without working collisions are broken):
+    - In create(), AFTER creating all sprites and physics groups, you MUST wire EVERY interaction:
+      a) Player <-> Enemies: this.physics.add.overlap(this.player, this.enemies, this.hitEnemy, null, this);
+      b) Player <-> Collectibles: this.physics.add.overlap(this.player, this.coins, this.collectCoin, null, this);
+      c) Player projectiles <-> Enemies: this.physics.add.overlap(this.bullets, this.enemies, this.bulletHitEnemy, null, this);
+    - Each callback MUST:
+      i) Disable/hide the other sprite (enemy/coin): other.disableBody(true, true); or other.destroy();
+      ii) Update game state (score, lives, etc.)
+      iii) Play a sound effect if available
+      iv) For player damage: apply invincibility cooldown so one hit doesn't drain all lives
+    - If you create enemies, coins, bullets, or ANY interactive entity but forget to wire overlaps/colliders in create(), the game will have no interactions and will be unplayable. This is the #1 generation bug.
+11. Variable Naming Rules (CRITICAL — avoid typos that crash at runtime):
+    - The HUD instance MUST be assigned to "this.hud" (NOT "this.fud", "this.hudElement", or any other name).
+    - The platformer instance MUST be assigned to "this.platformer" (NOT "this.plat", "this.runner", etc.).
+    - The state machine instance MUST be assigned to "this.stateMachine" (NOT "this.sm", "this.fsm", etc.).
+    - State machine transitions use this.stateMachine.transition("stateName") (NOT .change() — that does not exist).
+    - When calling HUD methods, always use this.hud.updateScore(val), this.hud.updateLives(val), this.hud.updateWave(val), this.hud.showResult(res). These are the EXACT method names — do NOT use setScore/setLives/setWave (they do not exist and will crash).
+    - NEVER use "this.fud" — it is a common typo for "this.hud" and will cause a runtime crash.
 
 Keep it between roughly 160 and 260 lines. Write concise, clean Phaser code without boilerplate or verbose comments. Avoid giant repetitive arrays or bloated helper methods to ensure output stays well within token ceilings. A complete, enjoyable game that boots smoothly is the gold standard.`;
 }

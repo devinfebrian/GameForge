@@ -26,7 +26,8 @@ export interface PatchRequest {
 }
 
 export interface PatchDependencies {
-  readonly client: LlmClient;
+  /** Per-agent LLM clients, keyed by provider name. */
+  readonly clients: ReadonlyMap<string, LlmClient>;
   readonly models: AgentModels;
   /** Per-stage fallback endpoints; absent or null means primary-only. */
   readonly fallback?: LlmFallback | null;
@@ -141,10 +142,22 @@ async function executePatch(
     { readonly provider: string; readonly reason: string }
   >();
 
-  const routeFor = (stage: GenerationStage): LlmRoute => ({
-    primary: { provider: "anthropic", client: deps.client, model: deps.models[stage] },
-    fallback: deps.fallback?.endpoints[stage] ?? null,
-  });
+  const routeFor = (stage: GenerationStage): LlmRoute => {
+    const { model, provider } = deps.models[stage];
+    const client = deps.clients.get(provider);
+
+    if (client === undefined) {
+      throw new GenerationError(
+        "config_missing",
+        `No LLM client found for provider "${provider}" for the "${stage}" stage.`,
+      );
+    }
+
+    return {
+      primary: { provider, client, model },
+      fallback: deps.fallback?.endpoints[stage] ?? null,
+    };
+  };
 
   /**
    * The run is about to stop because the coder failed and the primary provider
@@ -307,7 +320,7 @@ async function executePatch(
         // Kept for Phase 5 to repair, never promoted: a failed edit must not
         // replace a version that still plays.
         promoteCurrent: false,
-        modelUsed: deps.models.coder,
+        modelUsed: deps.models.coder.model,
         provider: attribution.provider,
         isFallback: attribution.isFallback,
         fallbackReason: attribution.fallbackReason,

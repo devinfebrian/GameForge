@@ -100,7 +100,7 @@ export async function POST(request: Request): Promise<Response> {
     return bootstrap.response;
   }
 
-  const { client, models, fallback } = bootstrap;
+  const { clients, models, fallback } = bootstrap;
 
   // One run slot per user, shared with /api/generate, so a patch and a
   // generation cannot overlap and race for games.current_version_id.
@@ -122,7 +122,7 @@ export async function POST(request: Request): Promise<Response> {
         const outcome = await runPatch(
           { gameId, userId: profile.id, instruction, base },
           {
-            client,
+            clients,
             models,
             fallback,
             assetMode: settings.assetMode,

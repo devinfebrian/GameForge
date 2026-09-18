@@ -75,8 +75,12 @@ export async function updateAgentModel(
 ): Promise<AdminFormState> {
   await requireAdmin();
 
+  const rawProvider = formData.get("provider");
   const parsed = agentModelSchema.safeParse({
     agentType: formData.get("agentType"),
+    ...(typeof rawProvider === "string" && rawProvider.trim().length > 0
+      ? { provider: rawProvider.trim() }
+      : {}),
     modelName: formData.get("modelName"),
   });
 
@@ -86,36 +90,46 @@ export async function updateAgentModel(
 
   const env = getServerEnv();
 
-  if (env.anthropicBaseUrl === null) {
-    return { message: "ANTHROPIC_BASE_URL must be set before a model can be validated." };
+  // If verifying against Anthropic
+  if (parsed.data.provider === "anthropic") {
+    if (env.anthropicBaseUrl === null) {
+      return { message: "ANTHROPIC_BASE_URL must be set before an Anthropic model can be validated." };
+    }
+
+    let credential: string | null;
+
+    try {
+      credential =
+        (await loadGatewayCredential(env.integrationEncryptionKey)) ?? env.anthropicApiKey;
+    } catch (error) {
+      return {
+        message: error instanceof Error ? error.message : "The gateway credential could not be read.",
+      };
+    }
+
+    if (credential === null) {
+      return { message: "No gateway credential is configured, so the model cannot be validated." };
+    }
+
+    try {
+      await verifyGatewayModel(env.anthropicBaseUrl, credential, parsed.data.modelName);
+    } catch (error) {
+      return {
+        message: error instanceof Error ? error.message : "The gateway rejected that model.",
+      };
+    }
   }
 
-  let credential: string | null;
-
-  try {
-    credential =
-      (await loadGatewayCredential(env.integrationEncryptionKey)) ?? env.anthropicApiKey;
-  } catch (error) {
-    return {
-      message: error instanceof Error ? error.message : "The gateway credential could not be read.",
-    };
-  }
-
-  if (credential === null) {
-    return { message: "No gateway credential is configured, so the model cannot be validated." };
-  }
-
-  try {
-    await verifyGatewayModel(env.anthropicBaseUrl, credential, parsed.data.modelName);
-  } catch (error) {
-    return {
-      message: error instanceof Error ? error.message : "The gateway rejected that model.",
-    };
+  const updateValues: Record<string, unknown> = {
+    model_name: parsed.data.modelName,
+  };
+  if (typeof rawProvider === "string" && rawProvider.trim().length > 0) {
+    updateValues.provider = parsed.data.provider;
   }
 
   const { error } = await createAdminClient()
     .from("llm_configurations")
-    .update({ model_name: parsed.data.modelName })
+    .update(updateValues)
     .eq("agent_type", parsed.data.agentType)
     .eq("is_active", true);
 
@@ -125,7 +139,10 @@ export async function updateAgentModel(
 
   revalidatePath("/admin");
 
-  return { ok: true, message: "Model updated. The next run will use it." };
+  return {
+    ok: true,
+    message: `Model updated to "${parsed.data.modelName}" (${parsed.data.provider}). The next run will use it.`,
+  };
 }
 
 /**

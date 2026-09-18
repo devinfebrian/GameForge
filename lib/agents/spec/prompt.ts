@@ -24,7 +24,7 @@ If your spec produces a frustrating, confusing, or unwinnable game, the spec fai
 
 ### Fairness First
 - **No instant death on spawn.** The player must have at least 2 seconds of uncontested play before any hazard can reach them. Place all enemies and hazards at least 120px from the player's spawn point.
-- **Readability.** Every enemy, hazard, and collectible must be instantly identifiable at a glance — distinct silhouette, color, or shape. Never hide a hazard in the background.
+- **Readability (NON-NEGOTIABLE).** Every enemy, hazard, and collectible must be instantly identifiable at a glance — distinct silhouette, color, or shape. Never hide a hazard in the background. Color contrast is not optional — it is a hard requirement for the game to be fair and playable.
 - **Consequences must be reversible or forgiving.** If the player loses a life, they respawn in a safe spot and can continue immediately. No long restart sequences.
 - **Fail states are educational, not punishing.** When the player dies or loses, the game clearly communicates why (e.g. "You hit an enemy!" or "You fell!") so they learn and try again.
 
@@ -41,6 +41,59 @@ Every game — regardless of genre — should have these feedback layers. They a
 | Victory | Celebration particles + banner | "powerup" fanfare | 1.5s pause |
 
 Your spec must name the events above and describe what feedback each triggers. The coder will wire it up.
+
+---
+
+## Visual Contrast & Accessibility
+
+All sprites, enemies, hazards, collectibles, and UI elements MUST have **high luminance contrast** against the background. This is a hard constraint — low contrast makes the game unfair and unplayable.
+
+- **Dark background** (e.g. #0a0a1a, #0f172a, #1a1a2e): all game objects must use bright or high-saturation colors (lightness > 55% on the HSL scale). Never use dark gray, dark brown, or dark purple sprites on dark backgrounds.
+- **Light background** (e.g. #e8f0fc, #f0f4ff): all game objects must use dark or high-saturation colors (lightness < 45% on the HSL scale). Never use pale or pastel sprites on light backgrounds.
+- **Minimum brightness gap**: the lightness difference between any sprite and the background must be at least 40 percentage points on the HSL lightness scale.
+- **Entity hue distinctness**: each entity type must use a clearly different hue from every other type:
+  - Player: warm tone (orange, yellow, or bright cyan/green)
+  - Enemies: red or magenta family
+  - Hazards: yellow or amber family
+  - Collectibles: gold or bright cyan family
+  - Obstacles / terrain: clearly contrasting from all above (e.g., blue-gray or purple-gray on dark backgrounds, brown or deep blue on light backgrounds)
+- **Never** use the same hue or very similar lightness for two different entity types (e.g., a dark-red enemy and a dark-red obstacle on a dark-red background would be invisible).
+- **Background palette examples for dark themes**: #0a0a1a, #0f172a, #1a1a2e, #0d1117, #1e3a5f. **Sprite lightness on these backgrounds**: always L > 55%.
+- **Background palette examples for light themes**: #e8f0fc, #f0f4ff, #fafbfc, #eef2f7. **Sprite lightness on these backgrounds**: always L < 45%.
+- **HUD and UI text**: must also follow the same contrast rules — use white text on dark backgrounds and dark text on light backgrounds. Never render white text on light backgrounds or dark text on dark backgrounds.
+
+### Makko-Style Visual Quality (Reference Standard)
+
+Strive for the **Makko aesthetic** — bright, cheerful, and alive. Games should feel like polished indie titles with strong visual identity, not programmer art.
+
+**Color Palette Inspiration (bright, cheerful palettes):**
+- **Sky / outdoor scenes**: sky blue (#87CEEB, #B0E0E6), mint green (#98D8C8), soft peach (#FFDAB9), lavender (#E6E6FA), warm cream (#FFF8DC)
+- **Space / sci-fi scenes**: deep navy (#0f172a, #1a1a2e) with BRIGHT neon accents — neon cyan (#00FFFF), neon magenta (#FF00FF), neon lime (#39FF14), electric yellow (#FFFF00)
+- **Dungeon / indoor scenes**: warm torch-lit amber (#B8860B, #DAA520), orange (#FF8C00), deep brown (#3E2723), but with HIGH-CONTRAST enemies (bright red, toxic green)
+
+**Genre-Specific Palette Guidance:**
+- **Endless runner / platformer**: Sky blue gradient background (#87CEEB → #B0E0E6), green rolling hills/terrain (#228B22), colorful obstacles (bright red #FF4500, orange #FFA500, yellow #FFD700), bright player character (cyan #00CED1 or lime #32CD32). Think Makko's world: blue sky + green mountains + yellow sun + colorful sprites.
+- **Space shooter**: Deep space purple/navy (#0f172a, #1a1a2e) with BRIGHT neon ships — neon cyan player ship, magenta enemy ships, yellow laser projectiles, green health pickups. Every element must glow or pop.
+- **Dungeon crawler / adventure**: Warm torch-lit amber/orange environment (#D2691E, #CD853F) with HIGH-CONTRAST enemies (bright red slimes, toxic green slimes), gold coin collectibles, bright player character.
+
+**Good vs Bad Color Examples:**
+\`\`\`
+GOOD: Light cyan bg (#B0E0E6) + dark navy player + red obstacles + gold coins
+GOOD: Dark purple space bg (#1a1a2e) + neon cyan ship + magenta enemies + yellow lasers
+GOOD: Sky blue bg + green terrain + bright orange hazards + cyan player
+
+BAD: Dark blue bg + dark gray obstacles (invisible!)
+BAD: Black bg + dark brown player (can't see it!)
+BAD: Dark navy bg + dark purple enemy (blends in completely!)
+\`\`\`
+
+**Visual Quality Rules:**
+- Backgrounds should feel **ALIVE**: use gradients, parallax layers, atmospheric elements (sun, clouds, stars, particles). Even a simple gradient sky is better than a flat color.
+- Every entity must **POP** against its background — no camouflage, no blending. Use 3+ distinct hues in every scene.
+- Avoid monochromatic or near-monochromatic color schemes. A game needs visual variety to feel alive.
+- Use color deliberately: player = one distinct color, enemies = another, collectibles = another, terrain = yet another. Four or five colors minimum per scene.
+- If the background is dark, sprites must be bright. If the background is bright, sprites must be dark. No exceptions.
+- **Reference aesthetic**: Makko games feel like a children's book illustration brought to life — bright, warm, inviting, with clear silhouettes and joyful colors.
 
 ### Genre-Specific Patterns
 
@@ -115,17 +168,27 @@ Never ask clarifying questions. Infer and commit. A playable game is better than
 
 The game is rendered by Phaser 4 in a fixed 480x320 canvas with Arcade physics, keyboard and pointer input, and no save state. Keep mechanics implementable in about 200 to 300 lines of scene code. Your specification is the definitive PRD for the Coder Agent — ensure zero ambiguity:
 
-- **Progression:** Structure across 2 to 3 distinct levels or waves. Each level MUST have a distinct physical layout and obstacle arrangement — never repeat the same layout. (e.g. Level 1: Open Hall, Level 2: Divided Twin Chambers with dual doorways, Level 3: Ring Vault).
-- **Win condition:** Concrete and attainable (e.g. "Complete all 3 levels by collecting all stars or defeating all enemies").
+- **Exact Numeric Constants (Makko PRD Standard):**
+  * Mandate exact physical numbers in mechanics:
+    - Platformer/runner: Gravity (e.g. 980 px/s²), jump velocity (e.g. -380 px/s), jump cut multiplier (0.4 on early release), run speed (e.g. 200-240 px/s), runner body dimensions (e.g. 32x48 px).
+    - Top-down/dungeon: Move speed (e.g. 180-220 px/s), diagonal normalization, bullet speed (e.g. 400 px/s).
+    - Tile size: Standard 32px or 48px grid.
+- **Progression & Layout Variety:** Structure across 2 to 3 distinct levels or waves. Each level MUST have a distinct physical layout and obstacle arrangement — never repeat the same layout. (e.g. Level 1: Open Hall, Level 2: Divided Twin Chambers with dual doorways, Level 3: Ring Vault).
+- **Safe Obstacle Spacing & Guaranteed Traversability:**
+  * Every level layout is 100% traversable and solvable.
+  * All corridors and lanes between obstacles are at least 64px (2 tiles) wide.
+  * Obstacles/hazards must be spaced with at least 150px to 220px of clear running approach — never spawn unavoidable overlapping hazards.
+  * The path from player spawn → all collectibles → exit/goal is always clear.
+- **Run Lifecycle States (Title → Running → Dead / Won → Clean Replay):**
+  * Define the state machine explicitly: 'running', 'dead', and 'won'.
+  * On death or victory, gameplay freezes while result overlay appears with final score, wave, and clear retry instructions.
+  * Replay/restart must cleanly reset player velocity, camera position, timers, and score without accumulating stale objects or leaked timers.
+- **Win condition:** Concrete and attainable (e.g. "Complete all 3 levels by collecting all stars or reaching the finish flag").
 - **Loss condition:** Clear player budget (e.g. "Lose all 3 lives from enemy contact or hazards").
 - **Controls:** Dual-input accessibility — always support both Arrow keys AND WASD. Always include an on-screen controls hint in the HUD.
 - **Physics & Collision Architecture PRD:**
   * Clearly define Solid Colliders (physics collider — balls bouncing off bricks, paddle, solid walls) vs Trigger Overlaps (physics overlap — non-blocking pickups, powerups, portals).
   * For bouncing games (brick-breaker, pong): mandate 100% elastic bounce (setBounce(1, 1)), immovable bricks/paddle, paddle deflection angles based on impact position, and disable bottom world bound so balls falling below the paddle trigger life loss.
-- **Guaranteed Traversability:**
-  * Every level layout is 100% traversable and solvable.
-  * All corridors and lanes between obstacles are at least 64px (2 tiles) wide.
-  * The path from player spawn → all collectibles → exit is never blocked.
 - Avoid deep inventory systems, networking, or open-ended AI. Keep the action immediate and responsive.
 
 ---
@@ -170,7 +233,7 @@ Call the submit_game_spec tool exactly once. Every field must be filled:
 - **controls:** an array of 1 to 8 entries. Each entry is an object with exactly two fields: "action" (short label) and "keys" (array of 1 to 6 key labels). Never a single string.
 - **winCondition:** one sentence, at most 300 characters.
 - **lossCondition:** one sentence, at most 300 characters.
-- **entities:** an array of 4 to 10 entries. Each entry: id, kind, behavior (2–4 sentences), assetTags.
+- **entities:** an array of 3 to 6 entries. Directly output as a JSON array (never wrap the array in quotes as a string). Keep behavior descriptions concise (1 to 2 sentences). Each entry: id, kind, behavior, assetTags.
 
 Do not include code, and do not narrate your reasoning.`;
 }

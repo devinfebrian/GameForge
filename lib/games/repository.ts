@@ -670,6 +670,67 @@ export async function commitVersionStability(options: {
 }
 
 // ---------------------------------------------------------------------------
+// Delete
+// ---------------------------------------------------------------------------
+
+export type DeleteGameResult =
+  | { readonly kind: "deleted" }
+  | { readonly kind: "not_found" };
+
+/**
+ * Permanently deletes a game and all its associated data.
+ *
+ * Cascade order:
+ * 1. `generation_runs` — deleted first (has FK with no auto-cascade)
+ * 2. `game_versions` — deleted next (cascades to `game_messages`)
+ * 3. `games` — deleted last (the owning row)
+ *
+ * Authorisation is checked against `user_id` on the games row so that a
+ * foreign game id cannot be deleted even if its children were orphaned.
+ */
+export async function deleteGame(options: {
+  readonly gameId: string;
+  readonly userId: string;
+}): Promise<DeleteGameResult> {
+  // 1. Delete generation_runs (no auto-cascade from games)
+  const { error: runsError } = await createAdminClient()
+    .from("generation_runs")
+    .delete()
+    .eq("game_id", options.gameId);
+
+  if (runsError !== null) {
+    throw new Error(`Failed to delete generation_runs: ${runsError.message}`);
+  }
+
+  // 2. Delete game_versions (cascades to game_messages)
+  const { error: versionsError } = await createAdminClient()
+    .from("game_versions")
+    .delete()
+    .eq("game_id", options.gameId);
+
+  if (versionsError !== null) {
+    throw new Error(`Failed to delete game_versions: ${versionsError.message}`);
+  }
+
+  // 3. Delete the game row itself, scoped to the user
+  const { count, error: gameError } = await createAdminClient()
+    .from("games")
+    .delete({ count: "exact" })
+    .eq("id", options.gameId)
+    .eq("user_id", options.userId);
+
+  if (gameError !== null) {
+    throw new Error(`Failed to delete game: ${gameError.message}`);
+  }
+
+  if (count === 0) {
+    return { kind: "not_found" };
+  }
+
+  return { kind: "deleted" };
+}
+
+// ---------------------------------------------------------------------------
 // Publishing (Phase 7)
 // ---------------------------------------------------------------------------
 

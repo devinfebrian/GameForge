@@ -40,7 +40,7 @@ export async function loadAgentModels(): Promise<AgentModels> {
     });
   }
 
-  const byAgent = new Map<AgentType, string>();
+  const byAgent = new Map<AgentType, { model: string; provider: string }>();
 
   for (const raw of data ?? []) {
     const row = llmConfigRowSchema.parse(raw);
@@ -52,14 +52,7 @@ export async function loadAgentModels(): Promise<AgentModels> {
       );
     }
 
-    if (row.provider !== "anthropic") {
-      throw new GenerationError(
-        "config_missing",
-        `Provider "${row.provider}" is not supported yet.`,
-      );
-    }
-
-    byAgent.set(row.agent_type, row.model_name);
+    byAgent.set(row.agent_type, { model: row.model_name, provider: row.provider });
   }
 
   const missing = GENERATION_STAGES.filter(
@@ -75,7 +68,7 @@ export async function loadAgentModels(): Promise<AgentModels> {
 
   return Object.fromEntries(
     GENERATION_STAGES.map(
-      (stage) => [stage, byAgent.get(STAGE_AGENT_TYPE[stage]) as string],
+      (stage) => [stage, byAgent.get(STAGE_AGENT_TYPE[stage]) as { model: string; provider: string }],
     ),
   ) as AgentModels;
 }
@@ -109,13 +102,6 @@ export async function loadDebugModel(): Promise<string> {
   }
 
   const row = llmConfigRowSchema.parse(data);
-
-  if (row.provider !== "anthropic") {
-    throw new GenerationError(
-      "config_missing",
-      `Provider "${row.provider}" is not supported yet.`,
-    );
-  }
 
   return row.model_name;
 }

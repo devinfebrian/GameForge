@@ -16,9 +16,9 @@ import type { SseFrame } from "@/lib/pipeline/events";
 const catalog = catalogSchema.parse(catalogJson);
 const SUPABASE_URL = "https://example.supabase.co";
 const MODELS = {
-  spec: "claude-sonnet-5",
-  asset_mapper: "claude-sonnet-5",
-  coder: "claude-sonnet-5",
+  spec: { model: "claude-sonnet-5", provider: "anthropic" },
+  asset_mapper: { model: "claude-sonnet-5", provider: "anthropic" },
+  coder: { model: "claude-sonnet-5", provider: "anthropic" },
 };
 
 const STRUCTURED_USAGE: LlmUsage = { inputTokens: 10, outputTokens: 5 };
@@ -132,11 +132,11 @@ async function runPipeline(options: RunOptions = {}) {
   }
 
   const deps: GenerationDependencies = {
-    client: createFakeClient({
+    clients: new Map([["anthropic", createFakeClient({
       spec: forStage("spec", options.spec, async () => VALID_SPEC),
       mapping: forStage("asset_mapper", options.mapping, async () => VALID_MAPPING),
       code: forStage("coder", options.code, async () => SCENE),
-    }),
+    })]]),
     models: MODELS,
     assetMode: options.assetMode,
     catalog,
@@ -202,7 +202,7 @@ describe("runGeneration — success", () => {
     expect(firstPersist.sourceCode).toBe(SCENE);
     expect(firstPersist.gameId).toBeNull();
     expect(firstPersist.userId).toBe("user-1");
-    expect(firstPersist.modelUsed).toBe(MODELS.coder);
+    expect(firstPersist.modelUsed).toBe(MODELS.coder.model);
   });
 
   test("carries the validated spec and a resolved manifest into the write", async () => {
@@ -369,7 +369,7 @@ describe("runGeneration — abort", () => {
     const outcome = await runGeneration(
       { prompt: "p", gameId: null, userId: "user-1" },
       {
-        client: createFakeClient({ spec: async () => VALID_SPEC }),
+        clients: new Map([["anthropic", createFakeClient({ spec: async () => VALID_SPEC })]]),
         models: MODELS,
         catalog,
         supabaseUrl: SUPABASE_URL,

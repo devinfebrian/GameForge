@@ -181,6 +181,100 @@ export const PHASER4_CONTROLS_GUIDANCE = `## Responsive Controls & HUD Guidance
    - Always display a fixed, clean controls hint in the corner or bottom (e.g. "WASD / Arrows: Move | Space: Action") with .setScrollFactor(0).setDepth(100).
    - Display a top HUD: "SCORE: " + this.score, "LEVEL: " + this.level + "/" + this.maxLevels, and "LIVES: " + this.lives.`;
 
+export const PHASER4_GAMEFORGE_ENGINE_GUIDANCE = `## GameForge Engine Helper Library (window.GameForge)
+
+The runtime automatically injects a helper library at "window.GameForge" (or simply "GameForge").
+USE THIS TO DRAMATICALLY SIMPLIFY YOUR CODE (cuts boilerplate by 60%), prevent physics explosion bugs, and ensure rock-solid feel:
+
+1. Platformer Engine (GameForge.createPlatformer):
+   - Handles coyote time (120ms), jump buffering (120ms), variable jump cut, and auto-run smoothly.
+   - Setup in create():
+     this.platformer = GameForge.createPlatformer(this, this.player, {
+       speed: 200,          // horizontal run speed (default: 200)
+       jumpForce: -380,     // jump impulse velocity (default: -380)
+       jumpCut: 0.4,        // cut factor when jump key is released early (default: 0.4)
+       coyoteMs: 120,       // jump grace period after falling off ledge (default: 120)
+       bufferMs: 120,       // jump input buffering before landing (default: 120)
+       autoRun: false       // true for endless runners, false for manual control
+     });
+   - In update(time, delta):
+     this.platformer.update(Math.min(delta, 50), {
+       left: this.cursors.left.isDown || this.wasd.left.isDown,
+       right: this.cursors.right.isDown || this.wasd.right.isDown,
+       jumpDown: this.cursors.up.isDown || this.wasd.up.isDown || this.spaceKey.isDown,
+       jumpJustDown: GameForge.input.justDown(this.spaceKey) || GameForge.input.justDown(this.cursors.up),
+       jumpReleased: Phaser.Input.Keyboard.JustUp(this.spaceKey)
+     });
+   - Reset player state on level start:
+     this.platformer.reset(spawnX, spawnY);
+
+2. Game State Machine (GameForge.createStateMachine):
+   - Keeps run lifecycle disciplined ('running', 'dead', 'won') without messy booleans:
+     this.stateMachine = GameForge.createStateMachine(this, {
+       running: {
+         enter: () => { /* enable player physics/controls */ },
+         update: (dt) => { /* gameplay logic */ }
+       },
+       dead: {
+         enter: () => {
+           this.physics.pause();
+           this.hud.showResult({ status: "defeat", title: "GAME OVER", message: "Final Score: " + this.score });
+         }
+       },
+       won: {
+         enter: () => {
+           this.physics.pause();
+           this.hud.showResult({ status: "victory", title: "VICTORY!", message: "All Levels Cleared!" });
+         }
+       }
+     }, "running");
+   - Transition with: this.stateMachine.transition("dead") or this.stateMachine.transition("won");
+
+3. Unified Screen HUD (GameForge.createHUD):
+   - Automatically anchors to screen (scrollFactor: 0, depth: 100), handles score, lives, wave, and game over overlays:
+     this.hud = GameForge.createHUD(this, {
+       initialScore: 0,
+       initialLives: 3,
+       initialWave: 1,
+       maxWaves: 3,
+       showControls: true,
+       controlsHint: "WASD / Arrows: Move | Space: Action"
+     });
+   - Update HUD (use update* NOT set* — setScore/setLives/setWave do not exist):
+     this.hud.updateScore(this.score);
+     this.hud.updateLives(this.lives);
+     this.hud.updateWave(this.level);
+   - Game over / victory modal with single-press restart protection:
+     this.hud.showResult({ status: "victory", title: "VICTORY!", message: "Score: " + this.score });
+
+4. Collision Wiring Examples (MANDATORY — copy these patterns):
+   - **Space Shooter / Top-Down** (most common — player ship, enemies, collectibles, bullets):
+     In create(), AFTER all sprites are created, wire:
+       this.physics.add.overlap(this.player, this.enemies, this.hitEnemy, null, this);
+       this.physics.add.overlap(this.player, this.coins, this.collectCoin, null, this);
+       this.physics.add.overlap(this.bullets, this.enemies, this.bulletHitEnemy, null, this);
+     Callback hitEnemy(player, enemy): check invincibility cooldown first, then enemy.destroy(), lives--, hud.updateLives(lives), juice flash. If lives <= 0 call gameOver(). Else set invincibility=true + time.delayedCall(1000ms to reset).
+     Callback collectCoin(player, coin): coin.destroy(), score += 10, hud.updateScore(score), juice.floatingText.
+     Callback bulletHitEnemy(bullet, enemy): bullet.destroy(), enemy.destroy(), score += 25, hud.updateScore(score), juice burst.
+   - **Platformer** (player, enemies, coins, hazards):
+       this.physics.add.collider(this.player, this.platforms);  // solid ground
+       this.physics.add.overlap(this.player, this.coins, this.collectCoin, null, this);
+       this.physics.add.overlap(this.player, this.enemies, this.hitEnemy, null, this);
+       this.physics.add.overlap(this.player, this.hazards, this.hitHazard, null, this);
+   - **CRITICAL**: Every interactive entity MUST have an overlap/collider wired in create(). If you create enemies or coins but forget to wire them, the game will have NO interactions.
+
+5. Juice & Game Feel Helpers (GameForge.juice) — EXACT signatures (wrong names will crash):
+   - Camera shake: GameForge.juice.shake(camera, duration, intensity) — e.g. GameForge.juice.shake(this.cameras.main, 150, 0.015)
+   - Screen flash (NOT sprite flash): GameForge.juice.flash(camera, duration, r, g, b) — e.g. GameForge.juice.flash(this.cameras.main, 150, 255, 50, 50) for red tint
+   - Floating score text: GameForge.juice.floatingText(scene, x, y, text, color) — e.g. GameForge.juice.floatingText(this, coin.x, coin.y, "+10", "#ffd700")
+   - Particle burst: GameForge.juice.burst(scene, x, y, count, colorHex) — e.g. GameForge.juice.burst(this, enemy.x, enemy.y, 8, 0xff3333)
+   - NOTE: juice.flash takes a CAMERA not a sprite. juice.floatingText takes a SCENE not a window. These are the ONLY juice methods available.
+
+5. Delta Clamping Rule:
+   - In update(time, delta), ALWAYS clamp delta:
+     const dt = Math.min(delta, 50);
+   - Passing unbounded delta after background tab switching causes physics tunnelling and object teleportation.`;
+
 export const PHASER4_SKILLS_PROMPT = [
   PHASER4_API_RULES,
   PHASER4_FX_GUIDANCE,
@@ -189,4 +283,5 @@ export const PHASER4_SKILLS_PROMPT = [
   PHASER4_UI_GUIDANCE,
   PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE,
   PHASER4_CONTROLS_GUIDANCE,
+  PHASER4_GAMEFORGE_ENGINE_GUIDANCE,
 ].join("\n\n");

@@ -16,6 +16,13 @@ import { isProviderUnavailable, runStageWithFallback } from "@/lib/llm/failover"
 import type { AgentModels, LlmClient, LlmUsage } from "@/lib/llm/types";
 import { EMPTY_USAGE, addUsage } from "@/lib/llm/types";
 import type { SseFrame, UsageData } from "@/lib/pipeline/events";
+
+/**
+ * When a stage falls back to a rate-limited provider (e.g. Groq free tier),
+ * the next stage needs a cooldown to avoid hitting the same rate limit.
+ * 15 seconds gives Groq's per-minute token counter time to reset.
+ */
+const FALLBACK_COOLDOWN_MS = 15_000;
 import type {
   PersistGenerationInput,
   PersistedGeneration,
@@ -30,7 +37,8 @@ export interface GenerationRequest {
 }
 
 export interface GenerationDependencies {
-  readonly client: LlmClient;
+  /** Per-agent LLM clients, keyed by provider name. */
+  readonly clients: ReadonlyMap<string, LlmClient>;
   readonly models: AgentModels;
   /** Per-stage fallback endpoints; absent or null means primary-only. */
   readonly fallback?: LlmFallback | null;
@@ -153,10 +161,22 @@ async function executeGeneration(
     { readonly provider: string; readonly reason: string }
   >();
 
-  const routeFor = (stage: GenerationStage): LlmRoute => ({
-    primary: { provider: "anthropic", client: deps.client, model: deps.models[stage] },
-    fallback: deps.fallback?.endpoints[stage] ?? null,
-  });
+  const routeFor = (stage: GenerationStage): LlmRoute => {
+    const { model, provider } = deps.models[stage];
+    const client = deps.clients.get(provider);
+
+    if (client === undefined) {
+      throw new GenerationError(
+        "config_missing",
+        `No LLM client found for provider "${provider}" for the "${stage}" stage.`,
+      );
+    }
+
+    return {
+      primary: { provider, client, model },
+      fallback: deps.fallback?.endpoints[stage] ?? null,
+    };
+  };
 
   /**
    * The run is about to stop because `stage` failed and the primary provider
@@ -189,7 +209,7 @@ async function executeGeneration(
     const fallback = fallbackByStage.get("coder");
 
     return {
-      provider: fallback?.provider ?? "anthropic",
+      provider: fallback?.provider ?? deps.models.coder.provider,
       isFallback: fallback !== undefined,
       fallbackReason: fallback?.reason ?? null,
     };
@@ -288,7 +308,7 @@ async function executeGeneration(
         sourceCode: null,
         errorLog: `${failure.code}: ${failure.message}`,
         promoteCurrent: false,
-        modelUsed: deps.models.coder,
+        modelUsed: deps.models.coder.model,
         provider: attribution.provider,
         isFallback: attribution.isFallback,
         fallbackReason: attribution.fallbackReason,
@@ -349,6 +369,15 @@ async function executeGeneration(
 
   const spec = specResult.value;
 
+  // Track whether any stage has used a fallback provider (e.g. Groq free tier)
+  // so we can add cooldowns between stages to avoid hitting rate limits.
+  let usedFallback = specResult.endpoint.provider !== deps.models.spec.provider;
+
+  // If spec used fallback, cool down before next stage.
+  if (usedFallback) {
+    await new Promise((resolve) => setTimeout(resolve, FALLBACK_COOLDOWN_MS));
+  }
+
   // --- Asset Mapper (advisory: failure degrades, it does not abort the run) ---
   //
   // In `llm` asset mode the mapper is skipped entirely: the coder is expected to
@@ -371,6 +400,7 @@ async function executeGeneration(
 
     if (mapResult.ok) {
       mapping = mapResult.value;
+      usedFallback = usedFallback || mapResult.endpoint.provider !== deps.models.asset_mapper.provider;
     } else if (isAborting(mapResult.error)) {
       return { status: "aborted", tokensUsed: totalTokens() };
     } else {
@@ -401,6 +431,11 @@ async function executeGeneration(
           sounds: { ...defaultSynthesizedSounds(spec), ...rawManifest.sounds },
         }
       : rawManifest;
+
+  // Cooldown before coder if any previous stage used a rate-limited fallback
+  if (usedFallback) {
+    await new Promise((resolve) => setTimeout(resolve, FALLBACK_COOLDOWN_MS));
+  }
 
   // --- Coder ---
   const coderResult = await attemptStage("coder", routeFor("coder"), async (endpoint) => {

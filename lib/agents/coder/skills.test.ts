@@ -7,6 +7,7 @@ import {
   PHASER4_UI_GUIDANCE,
   PHASER4_GAMEPLAY_PROGRESSION_GUIDANCE,
   PHASER4_CONTROLS_GUIDANCE,
+  PHASER4_GAMEFORGE_ENGINE_GUIDANCE,
   PHASER4_SKILLS_PROMPT,
 } from "./skills";
 
@@ -63,11 +64,20 @@ describe("Phaser 4 Skills compilation", () => {
     expect(PHASER4_CONTROLS_GUIDANCE).toContain("Math.hypot");
   });
 
+  test("provides GameForge engine helper guidance", () => {
+    expect(PHASER4_GAMEFORGE_ENGINE_GUIDANCE).toContain("GameForge.createPlatformer");
+    expect(PHASER4_GAMEFORGE_ENGINE_GUIDANCE).toContain("GameForge.createStateMachine");
+    expect(PHASER4_GAMEFORGE_ENGINE_GUIDANCE).toContain("GameForge.createHUD");
+    expect(PHASER4_GAMEFORGE_ENGINE_GUIDANCE).toContain("GameForge.juice.shake");
+    expect(PHASER4_GAMEFORGE_ENGINE_GUIDANCE).toContain("Math.min(delta, 50)");
+  });
+
   test("aggregates all guidance into PHASER4_SKILLS_PROMPT", () => {
     expect(PHASER4_SKILLS_PROMPT).toContain("Phaser 4 (v4.2.1)");
     expect(PHASER4_SKILLS_PROMPT).toContain("enableFilters()");
     expect(PHASER4_SKILLS_PROMPT).toContain("maxParticles");
     expect(PHASER4_SKILLS_PROMPT).toContain("startLevel");
     expect(PHASER4_SKILLS_PROMPT).toContain("createCursorKeys");
+    expect(PHASER4_SKILLS_PROMPT).toContain("GameForge.createPlatformer");
   });
 });

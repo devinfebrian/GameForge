@@ -12,6 +12,8 @@ import {
   Layers,
   Maximize2,
   Minimize2,
+  Pause,
+  Play,
   Rocket,
   Sparkles,
   Terminal,
@@ -361,6 +363,7 @@ export function StudioWorkspace({
   const [failure, setFailure] = useState<string | null>(null);
   const [unpersisted, setUnpersisted] = useState<ReadonlyArray<UnpersistedTurn>>([]);
   const [bootError, setBootError] = useState<string | null>(null);
+  const [generationComplete, setGenerationComplete] = useState(false);
 
   const [bootVersionId, setBootVersionId] = useState<string | null>(currentVersionId);
   const [previewVersionId, setPreviewVersionId] = useState<string | null>(currentVersionId);
@@ -393,8 +396,12 @@ export function StudioWorkspace({
   const [userPreviewOpen, setUserPreviewOpen] = useState<boolean | null>(null);
   const [previewExpanded, setPreviewExpanded] = useState(false);
 
-  // Derives preview open state: defaults to true when game is running (ready to play), false otherwise
-  const previewOpen = userPreviewOpen ?? (bridge.status === "running");
+  // Derives preview open state: defaults to true when game is running, generation is complete, or game has a version
+  const previewOpen = userPreviewOpen ?? (
+    bridge.status === "running" ||
+    generationComplete ||
+    (currentVersionId !== null && bridge.status === "idle")
+  );
 
   const togglePreview = useCallback(() => {
     setUserPreviewOpen((current) => !(current ?? (bridge.status === "running")));
@@ -463,6 +470,11 @@ export function StudioWorkspace({
         current.includes(data.stage) ? current : [...current, data.stage],
       );
       setActiveStage(null);
+
+      // Mark generation complete when the final stage (coder) finishes
+      if (data.stage === "coder") {
+        setGenerationComplete(true);
+      }
       return;
     }
 
@@ -770,21 +782,46 @@ export function StudioWorkspace({
             {busy ? "Agent Building..." : bridge.status === "running" ? "Live" : "Ready"}
           </span>
 
-          {/* Toggle preview button once game is running */}
-          {bridge.status === "running" && (
+          {/* Toggle preview button — shown when game is running, generation is complete, or a version exists */}
+          {(bridge.status === "running" || generationComplete || currentVersionId !== null) && (
             <button
               type="button"
               onClick={togglePreview}
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all ${
                 previewOpen
                   ? "bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25"
-                  : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 animate-pulse shadow-sm"
+                  : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 shadow-sm"
               }`}
               title={previewOpen ? "Hide game preview" : "Show game preview"}
             >
               <Gamepad2 className="size-3.5" />
               <span>{previewOpen ? "Hide Preview" : "Play Game"}</span>
             </button>
+          )}
+
+          {/* ▶ Play button — styled to match Publish/Export buttons */}
+          {(currentVersionId !== null || generationComplete) && bridge.status !== "running" && (
+            <button
+              type="button"
+              onClick={() => {
+                if (bootVersionId) void boot(bootVersionId);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/80 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              title="Launch game"
+            >
+              <Play className="size-3.5 text-muted-foreground" />
+              <span>Play</span>
+            </button>
+          )}
+
+          {/* Running indicator when game is live */}
+          {bridge.status === "running" && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-3 py-1 text-[11px] font-medium text-emerald-400">
+              <span className="flex size-5 items-center justify-center rounded-full bg-emerald-500 text-black">
+                <Play className="size-3 translate-x-0.5 fill-current" />
+              </span>
+              <span>Running</span>
+            </span>
           )}
         </div>
 
@@ -1283,24 +1320,16 @@ export function StudioWorkspace({
                 )}
               </button>
 
-              {/* Close / Collapse Side Panel */}
-              <button
-                type="button"
-                onClick={closePreview}
-                className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-secondary transition-colors"
-                title="Collapse preview panel"
-                aria-label="Collapse preview panel"
-              >
-                <X className="size-4" />
-              </button>
+
             </div>
           </div>
 
           {/* Main View Area (Preview Canvas vs Code vs Assets vs Console vs Versions) */}
           <div className="flex-1 min-h-0 relative flex flex-col">
             {activeTab === "preview" && (
-              <div className="flex-1 min-h-0 flex flex-col">
-                <div className="flex-1 min-h-0 overflow-hidden">
+              <div className="relative flex-1 min-h-0 flex flex-col">
+                <div className="relative flex-1 min-h-0 overflow-hidden">
+                  {/* Always render PreviewFrame so the iframe is always present */}
                   <PreviewFrame
                     frameRef={bridge.frameRef}
                     src={bridge.previewUrl}
@@ -1311,6 +1340,51 @@ export function StudioWorkspace({
                       }
                     }}
                   />
+
+                  {/* Paused overlay — shown on top of the game, not replacing it */}
+                  {bridge.status === "paused" && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[2px] z-10">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="rounded-full bg-white/10 p-4">
+                          <Pause className="size-8 text-white" />
+                        </div>
+                        <span className="text-sm font-medium text-white">Paused</span>
+                        <button
+                          type="button"
+                          onClick={bridge.resume}
+                          className="mt-2 flex items-center gap-2 rounded-lg bg-white/20 px-4 py-2 text-sm font-medium text-white hover:bg-white/30 transition-colors"
+                        >
+                          <Play className="size-4" />
+                          Resume
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Play button shown when generation completed OR game has a version but is idle */}
+                  {(generationComplete || (currentVersionId !== null && bridge.status === "idle")) && bridge.status !== "running" && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0f172a] p-8">
+                      <h2 className="mb-1 text-center text-3xl font-bold text-white drop-shadow-lg">
+                        {title ?? "Game Ready!"}
+                      </h2>
+                      <p className="mb-10 text-center text-sm text-slate-400">
+                        Generation complete — your game is ready to play.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (bootVersionId) void boot(bootVersionId);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/80 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      >
+                        <Play className="size-3.5 text-muted-foreground" />
+                        Start Game
+                      </button>
+                      <p className="mt-10 text-center text-xs text-slate-500">
+                        SPACE / ↑ / Jump &nbsp;·&nbsp; A / ← / Brake &nbsp;·&nbsp; C / O / Boost
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Transport Controls Bar */}
@@ -1562,8 +1636,9 @@ export function StudioWorkspace({
                             setFailure("Repair succeeded but no new version was returned.");
                             setFixAttemptsRemaining((n) => n - 1);
                           }
-                        } catch {
-                          setFailure("The repair request failed. Check your connection and try again.");
+                        } catch (err) {
+                          const detail = err instanceof Error ? err.message : String(err);
+                          setFailure("Repair failed: " + (detail.length > 120 ? detail.substring(0, 120) + "…" : detail));
                           setFixAttemptsRemaining((n) => n - 1);
                         } finally {
                           setBusy(false);

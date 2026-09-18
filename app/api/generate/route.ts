@@ -100,7 +100,7 @@ export async function POST(request: Request): Promise<Response> {
     return bootstrap.response;
   }
 
-  const { client, models, fallback } = bootstrap;
+  const { clients, models, fallback } = bootstrap;
 
   // Claimed before the stream opens, so an overlapping run is a real 409 rather
   // than an in-band error on a 200 response. Released in the stream's finally.
@@ -122,7 +122,7 @@ export async function POST(request: Request): Promise<Response> {
         const outcome = await runGeneration(
           { prompt: body.data.prompt, gameId, userId: profile.id, quality: body.data.quality },
           {
-            client,
+            clients,
             models,
             fallback,
             assetMode: settings.assetMode,

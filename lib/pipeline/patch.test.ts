@@ -16,9 +16,9 @@ const GAME_ID = "5f0a020f-c351-49fb-87c7-204f47711966";
 const VERSION_ID = "11111111-2222-3333-4444-555555555555";
 
 const MODELS = {
-  spec: "claude-sonnet-5",
-  asset_mapper: "claude-sonnet-5",
-  coder: "claude-sonnet-5",
+  spec: { model: "claude-sonnet-5", provider: "anthropic" },
+  asset_mapper: { model: "claude-sonnet-5", provider: "anthropic" },
+  coder: { model: "claude-sonnet-5", provider: "anthropic" },
 };
 
 const STRUCTURED_USAGE: LlmUsage = { inputTokens: 10, outputTokens: 5 };
@@ -123,7 +123,7 @@ async function runHarness(options: HarnessOptions = {}): Promise<HarnessResult> 
   };
 
   const deps: PatchDependencies = {
-    client,
+    clients: new Map([["anthropic", client]]),
     models: MODELS,
     assetMode: options.assetMode,
     catalog,

@@ -163,6 +163,13 @@ describe("buildCoderSystemPrompt", () => {
     expect(prompt).toContain("Dynamic NPC & Enemy AI");
     expect(prompt).toContain("Phaser.Math.Angle.Between");
   });
+
+  test("documents pre-injected window.GameForge helper library", () => {
+    expect(prompt).toContain("window.GameForge");
+    expect(prompt).toContain("GameForge.createPlatformer");
+    expect(prompt).toContain("GameForge.createHUD");
+    expect(prompt).toContain("GameForge.createStateMachine");
+  });
 });
 
 describe("buildCoderUserPrompt with a patch", () => {
