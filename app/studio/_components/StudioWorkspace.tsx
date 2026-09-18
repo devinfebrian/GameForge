@@ -18,7 +18,6 @@ import {
   Sparkles,
   Terminal,
   Wrench,
-  X,
   Zap,
 } from "lucide-react";
 import { PreviewFrame } from "@/app/_components/PreviewFrame";
@@ -406,11 +405,6 @@ export function StudioWorkspace({
   const togglePreview = useCallback(() => {
     setUserPreviewOpen((current) => !(current ?? (bridge.status === "running")));
   }, [bridge.status]);
-
-  const closePreview = useCallback(() => {
-    setPreviewExpanded(false);
-    setUserPreviewOpen(false);
-  }, []);
 
   const openPreview = useCallback(() => {
     setUserPreviewOpen(true);

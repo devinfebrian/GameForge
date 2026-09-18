@@ -375,8 +375,6 @@ function chatPayload(request: {
 // convert OpenAI-format payloads to Gemini's "generateContent" format and convert
 // the response back to OpenAI format so the rest of the pipeline is unchanged.
 
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
-
 function isGeminiProvider(baseUrl: string): boolean {
   return baseUrl.includes("generativelanguage.googleapis.com");
 }

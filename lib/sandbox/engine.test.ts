@@ -84,7 +84,8 @@ describe("GAMEFORGE_ENGINE", () => {
 
     const gf = mockWindow.GameForge as MockGameForge;
     let jumpCalled = false;
-    let setPosCalledWith: { x: number; y: number } | null = null;
+    let recordedX = 0;
+    let recordedY = 0;
     const player = {
       body: {
         blocked: { down: true },
@@ -95,7 +96,8 @@ describe("GAMEFORGE_ENGINE", () => {
         setVelocity: function(x: number, y: number) { this.velocity.x = x; this.velocity.y = y; },
       },
       setPosition: function(x: number, y: number) {
-        setPosCalledWith = { x, y };
+        recordedX = x;
+        recordedY = y;
       },
     };
 
@@ -114,6 +116,7 @@ describe("GAMEFORGE_ENGINE", () => {
     controller.reset(100, 200);
     expect(player.body.velocity.x).toBe(0);
     expect(player.body.velocity.y).toBe(0);
-    expect(setPosCalledWith).toEqual({ x: 100, y: 200 });
+    expect(recordedX).toBe(100);
+    expect(recordedY).toBe(200);
   });
 });
