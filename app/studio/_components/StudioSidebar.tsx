@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
@@ -10,8 +11,10 @@ import {
   Gamepad2,
   Layers,
   Loader2,
+  Menu,
   Plus,
   Trash2,
+  X,
 } from "lucide-react";
 
 interface GameProject {
@@ -31,7 +34,12 @@ export function StudioSidebar({ games, activeId: propActiveId }: StudioSidebarPr
   const [deleteTarget, setDeleteTarget] = useState<GameProject | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
+
+  // Close sidebar on mobile when route changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  React.useEffect(() => { setMobileOpen(false); }, [pathname]);
 
   // Extract active game ID from route if not explicitly passed
   const routeGameId = pathname.startsWith("/studio/")
@@ -89,12 +97,39 @@ export function StudioSidebar({ games, activeId: propActiveId }: StudioSidebarPr
 
   return (
     <>
-      <aside className="flex w-[240px] flex-shrink-0 flex-col select-none border-r border-border bg-sidebar-bg text-foreground">
+      {/* Mobile Hamburger Button */}
+      <button
+        type="button"
+        onClick={() => setMobileOpen(true)}
+        className="md:hidden fixed top-[49px] left-3 z-40 flex items-center justify-center size-9 rounded-lg bg-card border border-border shadow-sm text-foreground hover:bg-muted transition-colors"
+        aria-label="Open navigation menu"
+      >
+        <Menu className="size-5" />
+      </button>
+
+      {/* Mobile Overlay */}
+      {mobileOpen && (
+        <div
+          className="md:hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm top-[49px]"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      <aside className={`flex w-[240px] flex-shrink-0 flex-col select-none border-r border-border bg-sidebar-bg text-foreground fixed md:static inset-y-0 left-0 z-50 top-[49px] transform transition-transform duration-200 ease-in-out ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         {/* Sidebar Header */}
-        <div className="flex h-[44px] items-center border-b border-border px-3">
+        <div className="flex h-[44px] items-center justify-between border-b border-border px-3">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Navigation
           </span>
+          {/* Close button (mobile only) */}
+          <button
+            type="button"
+            onClick={() => setMobileOpen(false)}
+            className="md:hidden flex items-center justify-center size-7 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            aria-label="Close navigation menu"
+          >
+            <X className="size-4" />
+          </button>
         </div>
 
         {/* New Game Primary Action */}
