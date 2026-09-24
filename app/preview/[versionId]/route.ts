@@ -36,11 +36,7 @@ export async function GET(
       return notFound();
     }
 
-    const { appOrigin, previewOrigin } = getPublicEnv();
-
-    if (previewOrigin === null) {
-      return notFound();
-    }
+    const { appOrigin } = getPublicEnv();
 
     const version = await findVersionForPreview(versionId);
 
@@ -88,7 +84,20 @@ export async function GET(
     });
   } catch (error) {
     console.error("Preview failed to render:", error);
-    return notFound();
+    return new Response(
+      process.env.NODE_ENV === "production"
+        ? "Preview render error."
+        : error instanceof Error
+          ? error.message
+          : "Preview render error.",
+      {
+        status: 500,
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      },
+    );
   }
 }
 

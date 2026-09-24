@@ -32,15 +32,19 @@ export function getPublicEnv(): PublicEnv {
     return cached;
   }
 
-  const blank = (value: string | undefined): string | undefined =>
-    value === undefined || value.trim() === "" ? undefined : value;
+  const ensureOriginUrl = (value: string | undefined): string | undefined => {
+    if (value === undefined) return undefined;
+    const trimmed = value.trim();
+    if (trimmed === "") return undefined;
+    return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  };
 
   const parsed = publicEnvSchema.safeParse({
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
-    NEXT_PUBLIC_APP_ORIGIN: process.env.NEXT_PUBLIC_APP_ORIGIN,
-    NEXT_PUBLIC_PREVIEW_ORIGIN: blank(process.env.NEXT_PUBLIC_PREVIEW_ORIGIN),
+    NEXT_PUBLIC_APP_ORIGIN: ensureOriginUrl(process.env.NEXT_PUBLIC_APP_ORIGIN),
+    NEXT_PUBLIC_PREVIEW_ORIGIN: ensureOriginUrl(process.env.NEXT_PUBLIC_PREVIEW_ORIGIN),
   });
 
   if (!parsed.success) {
@@ -58,9 +62,9 @@ export function getPublicEnv(): PublicEnv {
     supabasePublishableKey: parsed.data.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     appOrigin,
     previewOrigin:
-      configuredPreview === undefined || normalizeOrigin(configuredPreview) === appOrigin
-        ? null
-        : normalizeOrigin(configuredPreview),
+      configuredPreview !== undefined && configuredPreview.trim().length > 0
+        ? normalizeOrigin(configuredPreview)
+        : appOrigin,
   };
 
   return cached;

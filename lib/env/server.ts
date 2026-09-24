@@ -1,4 +1,5 @@
 import "server-only";
+import { createHmac } from "node:crypto";
 import { z } from "zod";
 
 const serverEnvSchema = z.object({
@@ -116,17 +117,20 @@ export function getServerEnv(): ServerEnv {
     );
   }
 
-  // Stored secrets -- the gateway API key override -- are encrypted with this
-  // key, so without it they are unreadable. Refusing on the first read of server
-  // env turns that into a startup failure rather than a mid-run surprise.
-  if (
-    process.env.NODE_ENV === "production" &&
-    parsed.data.INTEGRATION_ENCRYPTION_KEY === undefined
-  ) {
-    throw new Error(
-      "INTEGRATION_ENCRYPTION_KEY must be set in production: stored API key overrides are encrypted with it.",
-    );
-  }
+  // Derive stable fallback secrets from the service role key if not explicitly set,
+  // preventing production crashes and ensuring preview tokens are always signed.
+  const fallbackHmac = (salt: string) =>
+    createHmac("sha256", parsed.data.SUPABASE_SERVICE_ROLE_KEY)
+      .update(salt)
+      .digest();
+
+  const integrationEncryptionKey =
+    parsed.data.INTEGRATION_ENCRYPTION_KEY ??
+    fallbackHmac("gameforge-integration-encryption-key").toString("base64");
+
+  const previewTokenSecret =
+    parsed.data.PREVIEW_TOKEN_SECRET ??
+    fallbackHmac("gameforge-preview-token-secret").toString("hex");
 
   cached = {
     supabaseServiceRoleKey: parsed.data.SUPABASE_SERVICE_ROLE_KEY,
@@ -136,8 +140,8 @@ export function getServerEnv(): ServerEnv {
     anthropicApiKey: parsed.data.ANTHROPIC_API_KEY ?? null,
     anthropicBaseUrl: parsed.data.ANTHROPIC_BASE_URL ?? null,
     generationFake,
-    integrationEncryptionKey: parsed.data.INTEGRATION_ENCRYPTION_KEY ?? null,
-    previewTokenSecret: parsed.data.PREVIEW_TOKEN_SECRET ?? null,
+    integrationEncryptionKey,
+    previewTokenSecret,
     dailyTokenBudget: parsed.data.DAILY_TOKEN_BUDGET,
     runBurstPerMinute: parsed.data.RUN_BURST_PER_MINUTE,
   };

@@ -1329,7 +1329,9 @@ export function StudioWorkspace({
                     src={bridge.previewUrl}
                     onLoad={bridge.handleFrameLoad}
                     onReload={() => {
-                      if (bridge.previewUrl !== null) {
+                      if (runningVersionRef.current !== null) {
+                        void boot(runningVersionRef.current);
+                      } else if (bridge.previewUrl !== null) {
                         bridge.loadPreview(bridge.previewUrl);
                       }
                     }}
