@@ -49,6 +49,17 @@ const ARRAY_FIELDS: ReadonlySet<string> = new Set([
  */
 export function robustParseJsonArray(value: unknown): unknown[] | null {
   if (Array.isArray(value)) return value;
+  // Wrap bare strings as single-element arrays — handles LLM returning
+  // "move and jump" instead of ["move and jump"]
+  if (typeof value === "string" && value.trim()) {
+    const trimmed = value.trim();
+    // Don't wrap things that look like JSON objects/arrays already
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      // Fall through to JSON parsing below
+    } else {
+      return [trimmed];
+    }
+  }
   if (typeof value !== "string") {
     if (value && typeof value === "object") {
       for (const v of Object.values(value)) {
@@ -250,6 +261,26 @@ export function normalizeEntityKinds(spec: unknown): unknown {
     record.entities = entities;
   }
 
+  // Normalise feel array — handle LLM returning a plain string
+  if (typeof record.feel === "string" && record.feel.trim()) {
+    record.feel = [{ event: "gameplay", visual: record.feel.trim().slice(0, 240), audio: "" }];
+  } else if (Array.isArray(record.feel)) {
+    record.feel = record.feel.map((f) => {
+      if (typeof f === "string" && f.trim()) {
+        return { event: "gameplay", visual: f.trim().slice(0, 240), audio: "" };
+      }
+      if (!f || typeof f !== "object") return { event: "gameplay", visual: "", audio: "" };
+      const fe = { ...(f as Record<string, unknown>) };
+      if (typeof fe.event !== "string") fe.event = "gameplay";
+      else if (fe.event.length > 120) fe.event = fe.event.slice(0, 120);
+      if (typeof fe.visual !== "string") fe.visual = "";
+      else if (fe.visual.length > 240) fe.visual = fe.visual.slice(0, 240);
+      if (typeof fe.audio !== "string") fe.audio = "";
+      else if (fe.audio.length > 120) fe.audio = fe.audio.slice(0, 120);
+      return fe;
+    });
+  }
+
   // Normalise string length bounds
   if (typeof record.title === "string" && record.title.length > 80) {
     record.title = record.title.slice(0, 80);
@@ -274,23 +305,34 @@ export function normalizeEntityKinds(spec: unknown): unknown {
       .slice(0, 8);
   }
 
-  // Normalise controls
+  // Normalise controls — handle LLM returning strings or bare objects
   if (Array.isArray(record.controls)) {
     record.controls = record.controls.slice(0, 8).map((ctrl) => {
-      if (!ctrl || typeof ctrl !== "object") return ctrl;
+      // If control is a plain string like "arrow keys", wrap it as an action
+      if (typeof ctrl === "string" && ctrl.trim()) {
+        return { action: ctrl.trim().slice(0, 60), keys: [] };
+      }
+      if (!ctrl || typeof ctrl !== "object") return { action: "unknown", keys: [] };
       const c = { ...(ctrl as Record<string, unknown>) };
-      if (typeof c.action === "string" && c.action.length > 60) {
+      if (typeof c.action !== "string" || !c.action.trim()) {
+        c.action = "unknown";
+      } else if (c.action.length > 60) {
         c.action = c.action.slice(0, 60);
       }
       if (typeof c.keys === "string" && c.keys.trim()) {
         c.keys = [c.keys.slice(0, 24)];
-      } else if (Array.isArray(c.keys)) {
+      } else if (!Array.isArray(c.keys)) {
+        c.keys = [];
+      } else {
         c.keys = c.keys
           .map((k) => (typeof k === "string" && k.length > 24 ? k.slice(0, 24) : k))
           .slice(0, 6);
       }
       return c;
     });
+  } else if (typeof record.controls === "string" && record.controls.trim()) {
+    // controls is a single string — wrap it
+    record.controls = [{ action: record.controls.trim().slice(0, 60), keys: [] }];
   }
 
   return record;
