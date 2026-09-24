@@ -22,6 +22,8 @@ const {
   commitVersionStability,
   getGameWorkspace,
   setGameVisibility,
+  findOwnedVersion,
+  findVersionForPreview,
 } = await import("@/lib/games/repository");
 
 const SPEC = {
@@ -462,5 +464,108 @@ describe("setGameVisibility", () => {
     ).toEqual({ kind: "not_found" });
 
     expect(adminDouble.writeCalls).toHaveLength(0);
+  });
+});
+
+describe("findOwnedVersion", () => {
+  test("handles legacy sound manifests gracefully", async () => {
+    adminDouble.queryQueue = [
+      { data: { id: "game-1", user_id: "user-1", current_version_id: "v-1" }, error: null },
+      {
+        data: {
+          id: "v-1",
+          version_number: 1,
+          source_code: "class Game {}",
+          asset_manifest: {
+            sprites: { player: "https://example.com/p.png" },
+            sounds: { jump: "jump", shoot: "laser" },
+          },
+        },
+        error: null,
+      },
+    ];
+
+    const result = await findOwnedVersion({
+      gameId: "game-1",
+      versionId: "v-1",
+      userId: "user-1",
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.manifest.sounds.jump).toEqual({ preset: "jump" });
+    expect(result?.manifest.sounds.shoot).toEqual({ preset: "laser" });
+  });
+
+  test("handles null or empty manifest gracefully", async () => {
+    adminDouble.queryQueue = [
+      { data: { id: "game-1", user_id: "user-1", current_version_id: "v-1" }, error: null },
+      {
+        data: {
+          id: "v-1",
+          version_number: 1,
+          source_code: "class Game {}",
+          asset_manifest: null,
+        },
+        error: null,
+      },
+    ];
+
+    const result = await findOwnedVersion({
+      gameId: "game-1",
+      versionId: "v-1",
+      userId: "user-1",
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.manifest.sprites).toEqual({});
+    expect(result?.manifest.sounds).toEqual({});
+  });
+});
+
+describe("findVersionForPreview", () => {
+  test("loads preview version with legacy sound manifest and object games join", async () => {
+    adminDouble.queryQueue = [
+      {
+        data: {
+          id: "v-1",
+          version_number: 1,
+          source_code: "class Game {}",
+          asset_manifest: {
+            sprites: { player: "https://example.com/p.png" },
+            sounds: { game_over: "explosion", food_eaten: "pickup" },
+          },
+          games: { is_public: true },
+        },
+        error: null,
+      },
+    ];
+
+    const result = await findVersionForPreview("v-1");
+
+    expect(result).not.toBeNull();
+    expect(result?.isPublic).toBe(true);
+    expect(result?.manifest.sounds.game_over).toEqual({ preset: "explosion" });
+    expect(result?.manifest.sounds.food_eaten).toEqual({ preset: "pickup" });
+  });
+
+  test("loads preview version when games join is returned as an array", async () => {
+    adminDouble.queryQueue = [
+      {
+        data: {
+          id: "v-1",
+          version_number: 1,
+          source_code: "class Game {}",
+          asset_manifest: null,
+          games: [{ is_public: false }],
+        },
+        error: null,
+      },
+    ];
+
+    const result = await findVersionForPreview("v-1");
+
+    expect(result).not.toBeNull();
+    expect(result?.isPublic).toBe(false);
+    expect(result?.manifest.sounds).toEqual({});
   });
 });

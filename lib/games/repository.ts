@@ -304,7 +304,12 @@ export interface PreviewVersionSnapshot extends OwnedVersionSnapshot {
 }
 
 const previewVersionRowSchema = versionSnapshotRowSchema.extend({
-  games: z.object({ is_public: z.boolean() }).nullable(),
+  games: z
+    .union([
+      z.object({ is_public: z.boolean() }),
+      z.array(z.object({ is_public: z.boolean() })),
+    ])
+    .nullable(),
 });
 
 /**
@@ -334,13 +339,14 @@ export async function findVersionForPreview(
   }
 
   const row = previewVersionRowSchema.parse(data);
+  const gamesData = Array.isArray(row.games) ? row.games[0] : row.games;
 
   return {
     id: row.id,
     versionNumber: row.version_number,
     sourceCode: row.source_code,
     manifest: resolvedManifestSchema.parse(row.asset_manifest),
-    isPublic: row.games?.is_public === true,
+    isPublic: gamesData?.is_public === true,
   };
 }
 

@@ -170,7 +170,12 @@ export function projectAudioAssets(
   const projected: Record<string, string> = {};
 
   for (const [event, sound] of Object.entries(manifest.sounds)) {
-    if ('url' in sound && sound.url !== undefined) {
+    if (
+      typeof sound === "object" &&
+      sound !== null &&
+      "url" in sound &&
+      typeof sound.url === "string"
+    ) {
       projected[event] = sound.url;
     }
   }

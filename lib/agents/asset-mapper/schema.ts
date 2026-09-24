@@ -63,25 +63,37 @@ export const assetMappingSchema = z.object({
 
 export type AssetMapping = z.infer<typeof assetMappingSchema>;
 
+export const soundSpecSchema = z.union([
+  z.object({ preset: z.enum(SOUND_PRESETS) }),
+  z.object({ fileId: z.string(), url: z.string() }),
+  // Backward compatibility: legacy manifests stored presets directly as string values
+  z.enum(SOUND_PRESETS).transform((preset) => ({ preset })),
+  // Resilient fallback for any unrecognized legacy sound string
+  z.string().transform((str) => {
+    const matched = SOUND_PRESETS.find((p) => p === str);
+    return { preset: matched ?? ("hit" as const) };
+  }),
+]);
+
+export type SoundSpec = z.infer<typeof soundSpecSchema>;
+
 /**
  * What gets stored in `game_versions.asset_manifest`. Every spec entity appears
  * in `sprites`; a null value means "no catalog art, draw it procedurally".
  */
-export const resolvedManifestSchema = z.object({
-  sprites: z.record(z.string(), z.string().nullable()),
-  /**
-   * Sound assignments: key is event name, value is the resolved sound spec.
-   * - `{ preset: "laser" }` → jsfxr synthesized (original)
-   * - { fileId: "sfx_laser_small", url: "..." } → file from game-audio bucket (new)
-   */
-  sounds: z.record(
-    z.string(),
-    z.union([
-      z.object({ preset: z.enum(SOUND_PRESETS) }),
-      z.object({ fileId: z.string(), url: z.string() }),
-    ]),
-  ),
-});
+export const resolvedManifestSchema = z.preprocess(
+  (val) => (val === null || typeof val !== "object" ? {} : val),
+  z.object({
+    sprites: z.record(z.string(), z.string().nullable()).default({}),
+    /**
+     * Sound assignments: key is event name, value is the resolved sound spec.
+     * - `{ preset: "laser" }` → jsfxr synthesized (original)
+     * - `{ fileId: "sfx_laser_small", url: "..." }` → file from game-audio bucket (new)
+     * - `"laser"` (legacy string) → normalized to `{ preset: "laser" }`
+     */
+    sounds: z.record(z.string(), soundSpecSchema).default({}),
+  }),
+);
 
 export type ResolvedManifest = z.infer<typeof resolvedManifestSchema>;
 

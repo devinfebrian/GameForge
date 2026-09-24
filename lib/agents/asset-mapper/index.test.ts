@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { buildAssetMapperSystemPrompt } from "@/lib/agents/asset-mapper/prompt";
 import {
   mergeManifests,
+  projectAudioAssets,
   projectLoadCodeAssets,
   resolveManifest,
 } from "@/lib/agents/asset-mapper/index";
+import { resolvedManifestSchema } from "@/lib/agents/asset-mapper/schema";
 import type { GameSpec } from "@/lib/agents/spec/schema";
 import { catalogSchema } from "@/lib/assets/catalog";
 import catalogJson from "@/lib/assets/catalog.json";
@@ -99,6 +101,23 @@ describe("resolveManifest", () => {
 
     expect(manifest.sounds.collect).toEqual({ preset: "pickup" });
   });
+
+  test("accepts legacy string presets in resolvedManifestSchema", () => {
+    const legacy = {
+      sprites: { player: "https://example.com/player.png" },
+      sounds: { game_over: "explosion", food_eaten: "pickup" },
+    };
+
+    const parsed = resolvedManifestSchema.parse(legacy);
+
+    expect(parsed.sounds.game_over).toEqual({ preset: "explosion" });
+    expect(parsed.sounds.food_eaten).toEqual({ preset: "pickup" });
+  });
+
+  test("safely handles null or empty manifests in resolvedManifestSchema", () => {
+    expect(resolvedManifestSchema.parse(null)).toEqual({ sprites: {}, sounds: {} });
+    expect(resolvedManifestSchema.parse({})).toEqual({ sprites: {}, sounds: {} });
+  });
 });
 
 describe("projectLoadCodeAssets", () => {
@@ -116,6 +135,23 @@ describe("projectLoadCodeAssets", () => {
     for (const url of Object.values(projected)) {
       expect(typeof url).toBe("string");
     }
+  });
+
+  test("extracts file-based audio URLs and skips synthesized presets", () => {
+    const manifest = resolvedManifestSchema.parse({
+      sprites: {},
+      sounds: {
+        laser: { preset: "laser" },
+        impact: { fileId: "sfx_impact", url: "https://example.com/impact.ogg" },
+        legacy_jump: "jump",
+      },
+    });
+
+    const audio = projectAudioAssets(manifest);
+
+    expect(audio.laser).toBeUndefined();
+    expect(audio.legacy_jump).toBeUndefined();
+    expect(audio.impact).toBe("https://example.com/impact.ogg");
   });
 });
 

@@ -29,62 +29,67 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ versionId: string }> },
 ): Promise<Response> {
-  const { versionId } = await params;
+  try {
+    const { versionId } = await params;
 
-  if (!versionIdSchema.safeParse(versionId).success) {
+    if (!versionIdSchema.safeParse(versionId).success) {
+      return notFound();
+    }
+
+    const { appOrigin, previewOrigin } = getPublicEnv();
+
+    if (previewOrigin === null) {
+      return notFound();
+    }
+
+    const version = await findVersionForPreview(versionId);
+
+    if (version === null || version.sourceCode === null) {
+      return notFound();
+    }
+
+    // The lookup runs before the check because the publish state lives on the
+    // parent game, and every rejection is the same 404, so a probe learns nothing
+    // from the ordering.
+    const tokenAllowed = isPreviewRequestAllowed({
+      token: new URL(request.url).searchParams.get("token"),
+      versionId,
+      secret: getServerEnv().previewTokenSecret,
+      nodeEnv: process.env.NODE_ENV,
+      now: Date.now(),
+    });
+
+    if (!tokenAllowed && !version.isPublic) {
+      return notFound();
+    }
+
+    const inspection = inspectSceneSource(version.sourceCode);
+
+    if (!inspection.bootable) {
+      return notFound();
+    }
+
+    const soundSource = await readSoundSource(appOrigin);
+
+    const html = buildPreviewDocument({
+      title: "GameForge preview",
+      sceneSource: version.sourceCode,
+      assetManifest: projectLoadCodeAssets(version.manifest),
+      audioManifest: projectAudioAssets(version.manifest),
+      soundSource,
+      appOrigin,
+    });
+
+    return new Response(html, {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (error) {
+    console.error("Preview failed to render:", error);
     return notFound();
   }
-
-  const { appOrigin, previewOrigin } = getPublicEnv();
-
-  if (previewOrigin === null) {
-    return notFound();
-  }
-
-  const version = await findVersionForPreview(versionId);
-
-  if (version === null || version.sourceCode === null) {
-    return notFound();
-  }
-
-  // The lookup runs before the check because the publish state lives on the
-  // parent game, and every rejection is the same 404, so a probe learns nothing
-  // from the ordering.
-  const tokenAllowed = isPreviewRequestAllowed({
-    token: new URL(request.url).searchParams.get("token"),
-    versionId,
-    secret: getServerEnv().previewTokenSecret,
-    nodeEnv: process.env.NODE_ENV,
-    now: Date.now(),
-  });
-
-  if (!tokenAllowed && !version.isPublic) {
-    return notFound();
-  }
-
-  const inspection = inspectSceneSource(version.sourceCode);
-
-  if (!inspection.bootable) {
-    return notFound();
-  }
-
-  const soundSource = await readSoundSource(appOrigin);
-
-  const html = buildPreviewDocument({
-    title: "GameForge preview",
-    sceneSource: version.sourceCode,
-    assetManifest: projectLoadCodeAssets(version.manifest),
-    audioManifest: projectAudioAssets(version.manifest),
-    soundSource,
-    appOrigin,
-  });
-
-  return new Response(html, {
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "no-store",
-    },
-  });
 }
 
 function notFound(): Response {

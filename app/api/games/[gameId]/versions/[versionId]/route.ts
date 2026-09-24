@@ -33,49 +33,63 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ gameId: string; versionId: string }> },
 ): Promise<Response> {
-  const profile = await getCurrentProfile();
+  try {
+    const profile = await getCurrentProfile();
 
-  if (profile === null) {
+    if (profile === null) {
+      return Response.json(
+        { error: { code: "unauthorized", message: "Sign in to open a game." } },
+        { status: 401 },
+      );
+    }
+
+    const ids = paramsSchema.safeParse(await params);
+
+    if (!ids.success) {
+      return Response.json(
+        { error: { code: "invalid_body", message: "Malformed game or version id." } },
+        { status: 400 },
+      );
+    }
+
+    const version = await findOwnedVersion({
+      gameId: ids.data.gameId,
+      versionId: ids.data.versionId,
+      userId: profile.id,
+    });
+
+    // A version with no source is a recorded failure, not something to boot.
+    if (version === null || version.sourceCode === null) {
+      return Response.json(
+        { error: { code: "game_not_found", message: "No such version for this user." } },
+        { status: 404 },
+      );
+    }
+
+    const inspection = inspectSceneSource(version.sourceCode);
+
+    return Response.json({
+      versionId: version.id,
+      versionNumber: version.versionNumber,
+      sourceCode: version.sourceCode,
+      assetManifest: projectLoadCodeAssets(version.manifest),
+      bootable: inspection.bootable,
+      bootReason: inspection.reason,
+      // A signed, short-lived URL for the isolated preview origin, or null when
+      // that origin is not configured (the Studio then uses the sandbox frame).
+      previewUrl: inspection.bootable ? buildPreviewUrl(version.id) : null,
+    });
+  } catch (error) {
+    console.error("Failed to load version for studio:", error);
     return Response.json(
-      { error: { code: "unauthorized", message: "Sign in to open a game." } },
-      { status: 401 },
+      {
+        error: {
+          code: "load_failed",
+          message:
+            error instanceof Error ? error.message : "Failed to load version.",
+        },
+      },
+      { status: 500 },
     );
   }
-
-  const ids = paramsSchema.safeParse(await params);
-
-  if (!ids.success) {
-    return Response.json(
-      { error: { code: "invalid_body", message: "Malformed game or version id." } },
-      { status: 400 },
-    );
-  }
-
-  const version = await findOwnedVersion({
-    gameId: ids.data.gameId,
-    versionId: ids.data.versionId,
-    userId: profile.id,
-  });
-
-  // A version with no source is a recorded failure, not something to boot.
-  if (version === null || version.sourceCode === null) {
-    return Response.json(
-      { error: { code: "game_not_found", message: "No such version for this user." } },
-      { status: 404 },
-    );
-  }
-
-  const inspection = inspectSceneSource(version.sourceCode);
-
-  return Response.json({
-    versionId: version.id,
-    versionNumber: version.versionNumber,
-    sourceCode: version.sourceCode,
-    assetManifest: projectLoadCodeAssets(version.manifest),
-    bootable: inspection.bootable,
-    bootReason: inspection.reason,
-    // A signed, short-lived URL for the isolated preview origin, or null when
-    // that origin is not configured (the Studio then uses the sandbox frame).
-    previewUrl: inspection.bootable ? buildPreviewUrl(version.id) : null,
-  });
 }
