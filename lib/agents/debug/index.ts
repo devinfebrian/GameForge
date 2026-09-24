@@ -7,7 +7,7 @@ import { buildDebugUserPrompt, type DebugErrorReport } from "./prompt";
 // The repair must be able to emit a full ~250-line scene, exactly like the
 // Coder, and a failed repair is retried rather than salvaged, so the ceilings
 // match the Coder's.
-const DEBUG_MAX_TOKENS = 8192;
+const DEBUG_MAX_TOKENS = 6000;
 const DEBUG_TEMPERATURE = 0.2;
 
 export interface DebugAgentInput {

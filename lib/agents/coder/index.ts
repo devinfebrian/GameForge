@@ -13,7 +13,7 @@ import {
 // silently clamps anything larger, so this is a request, not a guarantee. The
 // truncation guard in the transport turns a clamp into a failure rather than a
 // half-written scene.
-const CODER_MAX_TOKENS = 8192;
+const CODER_MAX_TOKENS = 6000;
 const CODER_TEMPERATURE = 0.4;
 /** Max retries when the coder output is truncated. */
 const CODER_MAX_RETRIES = 2;

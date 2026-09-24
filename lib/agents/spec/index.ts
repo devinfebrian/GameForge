@@ -338,7 +338,7 @@ export function normalizeEntityKinds(spec: unknown): unknown {
   return record;
 }
 
-const SPEC_MAX_TOKENS = 4096;
+const SPEC_MAX_TOKENS = 5000;
 const SPEC_TEMPERATURE = 0.2;
 
 const SPEC_INPUT_SCHEMA = toolInputSchema(gameSpecSchema);
