@@ -4,6 +4,7 @@ import {
   mergeManifests,
   projectAudioAssets,
   projectLoadCodeAssets,
+  projectSoundPresets,
   resolveManifest,
 } from "@/lib/agents/asset-mapper/index";
 import { resolvedManifestSchema } from "@/lib/agents/asset-mapper/schema";
@@ -152,6 +153,23 @@ describe("projectLoadCodeAssets", () => {
     expect(audio.laser).toBeUndefined();
     expect(audio.legacy_jump).toBeUndefined();
     expect(audio.impact).toBe("https://example.com/impact.ogg");
+  });
+
+  test("extracts synthesized sound presets and skips file-based audio", () => {
+    const manifest = resolvedManifestSchema.parse({
+      sprites: {},
+      sounds: {
+        laser: { preset: "laser" },
+        level_clear: { preset: "powerup" },
+        impact: { fileId: "sfx_impact", url: "https://example.com/impact.ogg" },
+      },
+    });
+
+    const presets = projectSoundPresets(manifest);
+
+    expect(presets.laser).toBe("laser");
+    expect(presets.level_clear).toBe("powerup");
+    expect(presets.impact).toBeUndefined();
   });
 });
 

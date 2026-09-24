@@ -20,10 +20,14 @@ import { buildPhaserConfigExpression, SANDBOX_GAME_CONFIG } from "./sandbox-conf
 export function buildBootScript(
   assetManifest: Record<string, string>,
   audioManifest?: Record<string, string>,
+  soundPresets?: Record<string, string>,
 ): string {
   const manifest = escapeInlineScript(JSON.stringify(assetManifest));
   const audio = audioManifest !== undefined
     ? escapeInlineScript(JSON.stringify(audioManifest))
+    : "{}";
+  const presets = soundPresets !== undefined
+    ? escapeInlineScript(JSON.stringify(soundPresets))
     : "{}";
 
   return `${escapeInlineScript(PIXEL_ART_HELPER)}
@@ -32,6 +36,7 @@ ${escapeInlineScript(GAMEFORGE_ENGINE)}
 
 window.assetManifest = ${manifest};
 window.audioManifest = ${audio};
+window.soundPresets = ${presets};
 
 window.addEventListener(
   "pointerdown",

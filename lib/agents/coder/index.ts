@@ -10,10 +10,10 @@ import {
 } from "./prompt";
 
 // The gateway caps a completion at its own ceiling (6000 tokens, measured) and
-// silently clamps anything larger, so this is a request, not a guarantee. The
+// rejects anything larger with HTTP 400 on non-streaming requests. The
 // truncation guard in the transport turns a clamp into a failure rather than a
 // half-written scene.
-const CODER_MAX_TOKENS = 8192;
+const CODER_MAX_TOKENS = 6000;
 const CODER_TEMPERATURE = 0.4;
 /** Max retries when the coder output is truncated. */
 const CODER_MAX_RETRIES = 2;

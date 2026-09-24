@@ -18,6 +18,26 @@ export const soundFx = {
   setMuted: () => false,
 };
 window.soundFx = soundFx;
+if (typeof window !== "undefined" && typeof window.Phaser !== "undefined" && window.Phaser.Sound && window.Phaser.Sound.BaseSoundManager) {
+  const origPlay = window.Phaser.Sound.BaseSoundManager.prototype.play;
+  window.Phaser.Sound.BaseSoundManager.prototype.play = function (key, extra) {
+    if (this.game && this.game.cache && this.game.cache.audio && this.game.cache.audio.has(key)) {
+      return origPlay.call(this, key, extra);
+    }
+    return false;
+  };
+  const origAdd = window.Phaser.Sound.BaseSoundManager.prototype.add;
+  window.Phaser.Sound.BaseSoundManager.prototype.add = function (key, config) {
+    if (this.game && this.game.cache && this.game.cache.audio && this.game.cache.audio.has(key)) {
+      return origAdd.call(this, key, config);
+    }
+    const sound = window.Phaser.Sound.NoAudioSound
+      ? new window.Phaser.Sound.NoAudioSound(this, key, config)
+      : { key, isPlaying: false, play: () => {}, stop: () => {}, once: () => {}, on: () => {}, destroy: () => {} };
+    this.sounds.push(sound);
+    return sound;
+  };
+}
 `;
 
 export async function readSoundSource(appOrigin: string): Promise<string> {

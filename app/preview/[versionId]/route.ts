@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { projectAudioAssets, projectLoadCodeAssets } from "@/lib/agents/asset-mapper";
+import { projectAudioAssets, projectLoadCodeAssets, projectSoundPresets } from "@/lib/agents/asset-mapper";
 import { getPublicEnv } from "@/lib/env/public";
 import { getServerEnv } from "@/lib/env/server";
 import { findVersionForPreview } from "@/lib/games/repository";
@@ -72,6 +72,7 @@ export async function GET(
       sceneSource: version.sourceCode,
       assetManifest: projectLoadCodeAssets(version.manifest),
       audioManifest: projectAudioAssets(version.manifest),
+      soundPresets: projectSoundPresets(version.manifest),
       soundSource,
       appOrigin,
     });

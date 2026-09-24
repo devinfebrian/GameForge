@@ -12,6 +12,8 @@ export interface PreviewDocumentInput {
   readonly assetManifest: Record<string, string>;
   /** Audio manifest: event key -> URL (file-based audio only). Empty if all sounds are jsfxr. */
   readonly audioManifest?: Record<string, string>;
+  /** Synthesized sound presets: event key -> preset name (e.g. level_clear -> powerup). */
+  readonly soundPresets?: Record<string, string>;
   /** The contents of `public/sandbox/sound.js`, an ES module, read for stripping. */
   readonly soundSource: string;
   /** The app origin the frame posts bridge messages to. */
@@ -35,6 +37,7 @@ export function buildPreviewDocument(input: PreviewDocumentInput): string {
   const scene = escapeInlineScript(input.sceneSource);
   const manifest = escapeInlineScript(JSON.stringify(input.assetManifest));
   const audioManifest = escapeInlineScript(JSON.stringify(input.audioManifest ?? {}));
+  const soundPresets = escapeInlineScript(JSON.stringify(input.soundPresets ?? {}));
   const agent = escapeInlineScript(
     buildPreviewAgent({
       appOrigin: input.appOrigin,
@@ -63,6 +66,7 @@ ${buildPageStyles()}
 <script>
 window.assetManifest = ${manifest};
 window.audioManifest = ${audioManifest};
+window.soundPresets = ${soundPresets};
 </script>
 <script>${scene}</script>
 <script>${agent}</script>

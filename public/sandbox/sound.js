@@ -5,13 +5,92 @@
 // mapping lives here rather than in every generated scene.
 
 const PRESET_BY_NAME = {
+  // Direct jsfxr & GameForge preset names
   laser: "laserShoot",
+  laserShoot: "laserShoot",
   pickup: "pickupCoin",
+  pickupCoin: "pickupCoin",
   hit: "hitHurt",
+  hitHurt: "hitHurt",
   powerup: "powerUp",
+  powerUp: "powerUp",
   explosion: "explosion",
   jump: "jump",
+  blip: "blipSelect",
+  blipSelect: "blipSelect",
+
+  // GameForge standard events (from defaultSynthesizedSounds & LLM prompts)
+  level_clear: "powerUp",
+  level_complete: "powerUp",
+  clear: "powerUp",
+  win: "powerUp",
+  victory: "powerUp",
+  game_over: "explosion",
+  collect: "pickupCoin",
+  coin: "pickupCoin",
+  item: "pickupCoin",
+  shoot: "laserShoot",
+  fire: "laserShoot",
+  enemy_hit: "hitHurt",
+  enemy_defeat: "explosion",
+  defeat: "explosion",
+  hurt: "hitHurt",
+  damage: "hitHurt",
+  death: "explosion",
+  select: "blipSelect",
 };
+
+function normalizeName(name) {
+  return typeof name === "string" ? name.toLowerCase().replace(/[-_\s]+/g, "") : "";
+}
+
+const NORMALIZED_PRESET_MAP = {
+  laser: "laserShoot",
+  lasershoot: "laserShoot",
+  shoot: "laserShoot",
+  fire: "laserShoot",
+  pickup: "pickupCoin",
+  pickupcoin: "pickupCoin",
+  coin: "pickupCoin",
+  collect: "pickupCoin",
+  item: "pickupCoin",
+  hit: "hitHurt",
+  hithurt: "hitHurt",
+  hurt: "hitHurt",
+  damage: "hitHurt",
+  enemyhit: "hitHurt",
+  powerup: "powerUp",
+  powerUp: "powerUp",
+  levelclear: "powerUp",
+  levelcomplete: "powerUp",
+  clear: "powerUp",
+  win: "powerUp",
+  victory: "powerUp",
+  explosion: "explosion",
+  gameover: "explosion",
+  enemydefeat: "explosion",
+  defeat: "explosion",
+  kill: "explosion",
+  death: "explosion",
+  jump: "jump",
+  blip: "blipSelect",
+  blipselect: "blipSelect",
+  select: "blipSelect",
+};
+
+function resolvePreset(name) {
+  if (typeof name !== "string") return undefined;
+  if (PRESET_BY_NAME[name]) return PRESET_BY_NAME[name];
+  // Check window.soundPresets if injected from version manifest
+  if (typeof window !== "undefined" && window.soundPresets && window.soundPresets[name]) {
+    const mapped = window.soundPresets[name];
+    if (PRESET_BY_NAME[mapped]) return PRESET_BY_NAME[mapped];
+    if (NORMALIZED_PRESET_MAP[normalizeName(mapped)]) return NORMALIZED_PRESET_MAP[normalizeName(mapped)];
+  }
+  const norm = normalizeName(name);
+  if (NORMALIZED_PRESET_MAP[norm]) return NORMALIZED_PRESET_MAP[norm];
+  return undefined;
+}
 
 let api = null;
 let unlocked = false;
@@ -60,7 +139,7 @@ export const soundFx = {
       return false;
     }
 
-    const presetName = PRESET_BY_NAME[name];
+    const presetName = resolvePreset(name);
     return presetName === undefined ? false : playPreset(presetName);
   },
 
@@ -114,10 +193,30 @@ if (
     if (this.game && this.game.cache && this.game.cache.audio && this.game.cache.audio.has(key)) {
       return origPlay.call(this, key, extra);
     }
-    if (PRESET_BY_NAME[key] !== undefined) {
-      soundFx.play(key);
+    if (soundFx.play(key)) {
       return true;
     }
-    return origPlay.call(this, key, extra);
+    // Safe fallback: key is neither in cache nor a known sound preset.
+    // Return false instead of letting Phaser throw "Audio key not found in cache".
+    return false;
+  };
+
+  const origAdd = window.Phaser.Sound.BaseSoundManager.prototype.add;
+  window.Phaser.Sound.BaseSoundManager.prototype.add = function (key, config) {
+    if (this.game && this.game.cache && this.game.cache.audio && this.game.cache.audio.has(key)) {
+      return origAdd.call(this, key, config);
+    }
+    // Return a sound object that delegates play() to soundFx without crashing
+    const sound = window.Phaser.Sound.NoAudioSound
+      ? new window.Phaser.Sound.NoAudioSound(this, key, config)
+      : { key, isPlaying: false, play: () => {}, stop: () => {}, once: () => {}, on: () => {}, destroy: () => {} };
+    const origSoundPlay = sound.play;
+    sound.play = function (marker, soundConfig) {
+      if (soundFx.play(key)) return true;
+      if (origSoundPlay) return origSoundPlay.call(this, marker, soundConfig);
+      return false;
+    };
+    this.sounds.push(sound);
+    return sound;
   };
 }

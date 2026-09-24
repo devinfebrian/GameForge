@@ -351,6 +351,12 @@ async function requestJson(
  */
 const REASONING_EFFORT = "low";
 
+/**
+ * The non-streaming gateway proxy enforces a hard 6000-token ceiling and rejects
+ * anything larger with HTTP 400. Defensive clamping ensures requests never exceed this.
+ */
+const GATEWAY_MAX_TOKENS_CEILING = 6000;
+
 function chatPayload(request: {
   readonly model: string;
   readonly system: string;
@@ -360,7 +366,7 @@ function chatPayload(request: {
 }): Record<string, unknown> {
   return {
     model: request.model,
-    max_tokens: request.maxTokens,
+    max_tokens: Math.min(request.maxTokens, GATEWAY_MAX_TOKENS_CEILING),
     temperature: request.temperature,
     reasoning_effort: REASONING_EFFORT,
     messages: [

@@ -182,7 +182,27 @@ export function projectAudioAssets(
 
   return projected;
 }
+/**
+ * Extract synthesized sound presets for the sandbox: event name -> preset name.
+ */
+export function projectSoundPresets(
+  manifest: ResolvedManifest,
+): Record<string, SoundPreset> {
+  const projected: Record<string, SoundPreset> = {};
 
+  for (const [event, sound] of Object.entries(manifest.sounds)) {
+    if (
+      typeof sound === "object" &&
+      sound !== null &&
+      "preset" in sound &&
+      typeof sound.preset === "string"
+    ) {
+      projected[event] = sound.preset as SoundPreset;
+    }
+  }
+
+  return projected;
+}
 /**
  * Folds a fresh mapping onto the one a version already has, for the patch path.
  *
