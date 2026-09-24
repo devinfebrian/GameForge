@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
@@ -35,6 +36,10 @@ export function StudioSidebar({ games, activeId: propActiveId }: StudioSidebarPr
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
+
+  // Close sidebar on mobile when route changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  React.useEffect(() => { setMobileOpen(false); }, [pathname]);
 
   // Extract active game ID from route if not explicitly passed
   const routeGameId = pathname.startsWith("/studio/")
