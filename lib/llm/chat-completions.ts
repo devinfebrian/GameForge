@@ -173,43 +173,6 @@ function gatewayError(status: number, detail: string): GenerationError {
 }
 
 /**
- * Strips SSE (Server-Sent Events) framing from a response body.
- *
- * Some gateways wrap even non-streaming responses in SSE format:
- *
- *   event: run
- *   data: {"id":"...","choices":[...]}
- *
- * This function extracts the JSON from the `data:` line(s). Returns null if
- * the text doesn't look like SSE.
- */
-function unwrapSseResponse(text: string): string | null {
-  const lines = text.split("\n");
-  const dataLines: string[] = [];
-
-  for (const line of lines) {
-    if (line.startsWith("data: ")) {
-      dataLines.push(line.slice(6));
-    } else if (line.startsWith("data:")) {
-      dataLines.push(line.slice(5));
-    }
-    // Ignore event:, id:, retry:, comments (:...), and blank lines
-  }
-
-  if (dataLines.length === 0) {
-    return null;
-  }
-
-  // If there's only one data line, return it directly
-  if (dataLines.length === 1) {
-    return dataLines[0].trim();
-  }
-  // Multiple data lines — concatenate (handles chunked SSE)
-  const joined = dataLines.join("").trim();
-  return joined.length > 0 ? joined : null;
-}
-
-/**
  * A transport failure, named for what it actually is. A 200 whose body will not
  * parse is not a network problem, and reporting both as one message (as this
  * once did) points whoever is debugging at the wrong layer. The provider's own
@@ -320,18 +283,7 @@ async function requestJson(
       const text = await response.text();
 
       if (response.ok) {
-        // Some gateways (e.g., Elice) may wrap even non-streaming responses in
-        // SSE format ("event: run\ndata: {...}"). Strip the SSE framing and
-        // parse only the JSON payload.
-        try {
-          return JSON.parse(text) as unknown;
-        } catch {
-          const stripped = unwrapSseResponse(text);
-          if (stripped !== null) {
-            return JSON.parse(stripped) as unknown;
-          }
-          throw new SyntaxError(`Response body is not valid JSON or SSE: ${text.slice(0, 120)}`);
-        }
+        return JSON.parse(text) as unknown;
       }
 
       const detail = text.slice(0, 240).replace(/\s+/g, " ").trim() || failureHint;
